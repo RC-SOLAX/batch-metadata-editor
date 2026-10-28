@@ -31,6 +31,8 @@ function normalise(v, type) {
       return String(Number(v));
     case 'bool':
       return String(v).toLowerCase() === 'true' ? 'true' : 'false';
+    case 'choice':
+      return String(v).trim().toLowerCase();
     case 'image':
       return 'present';
     case 'gps': {

@@ -253,7 +253,7 @@ const FIELDS = [
   media('albumartist', 'Album artist', 'text', 'ItemList:AlbumArtist'),
   media('composer', 'Composer', 'text', 'ItemList:Composer'),
   media('genre', 'Genre', 'text', 'ItemList:Genre'),
-  media('year', 'Year', 'text', 'ItemList:ContentCreateDate', { help: '4 digits' }),
+  media('year', 'Year', 'text', 'ItemList:Year', { help: '4 digits' }),
   media('track', 'Track number', 'text', 'ItemList:TrackNumber', { help: 'e.g. 3 of 12' }),
   media('disc', 'Disc number', 'text', 'ItemList:DiskNumber', { help: 'e.g. 1 of 2' }),
   media('comment', 'Comment', 'multiline', 'ItemList:Comment'),
