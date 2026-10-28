@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('bme', {
   pickFiles: invoke('pick-files'),
   pickImage: invoke('pick-image'),
   readCurrent: invoke('read-current'),
+  prefill: invoke('prefill'),
   getOutputFolder: invoke('get-output-folder'),
   pickOutputFolder: invoke('pick-output-folder'),
   planOutputs: invoke('plan-outputs'),

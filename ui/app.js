@@ -28,7 +28,12 @@ const state = {
   activeTab: 'common',
   outDir: null,
   busy: false,
+  // Pre-filled from a file: the value each input started with. A field still
+  // equal to it is left alone; emptying it removes the value from the files.
+  prefill: null, // { path, values: {fieldId: inputValue}, removedCustom: Set }
 };
+
+const sameValue = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
 
 // ---- Field section headings (derived from the first tag's group) -----------
 
@@ -179,15 +184,23 @@ function fieldRow(f) {
   return row;
 }
 
-function addCustomRow(entry = { name: '', value: '', clear: false }) {
+function addCustomRow(entry = { name: '', value: '', clear: false }, prefilled = false) {
   const err = el('div', { class: 'err' });
   const name = el('input', { type: 'text', placeholder: 'Name, e.g. Batch_Ref', 'aria-label': 'Custom field name', value: entry.name, maxlength: 64 });
   const value = el('input', { type: 'text', placeholder: 'Value', 'aria-label': 'Custom field value', value: entry.value });
   const clear = el('input', { type: 'checkbox', checked: entry.clear });
   const row = el('div', { class: 'custom-row' }, name, value,
     el('label', { class: 'clear', title: 'Remove this property from the files' }, clear, ' Clear'),
-    el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': 'Remove this custom field', text: '✕', onclick: () => { row.remove(); onFormChange(); } }),
+    el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': 'Remove this custom field', text: '✕', onclick: () => {
+      if (row.dataset.baseName !== undefined && state.prefill) state.prefill.removedCustom.add(row.dataset.baseName);
+      row.remove();
+      onFormChange();
+    } }),
     err);
+  if (prefilled) {
+    row.dataset.baseName = entry.name;
+    row.dataset.baseValue = entry.value;
+  }
   const check = () => {
     const bad = name.value !== '' && !CUSTOM_NAME.test(name.value);
     name.classList.toggle('invalid', bad);
@@ -216,24 +229,50 @@ function applyFilter() {
 
 // ---- The form as data ------------------------------------------------------------
 
-function collectForm() {
+// The form as data. By default only what will change the files: with a
+// pre-fill, a field left as it was is omitted and an emptied one is a clear.
+// { all: true } returns everything visible, for saving as a preset.
+function collectForm({ all = false } = {}) {
+  const base = !all && state.prefill ? state.prefill : null;
   const fields = {};
   for (const f of state.fields) {
     const clear = document.getElementById(`c-${f.id}`).checked;
     const value = readInput(f);
-    if (clear || value !== '') fields[f.id] = { value: clear ? '' : value, clear };
+    if (clear) {
+      fields[f.id] = { value: '', clear: true };
+    } else if (base && f.id in base.values) {
+      if (sameValue(value, base.values[f.id])) continue;
+      fields[f.id] = value === '' ? { value: '', clear: true } : { value, clear: false };
+    } else if (value !== '') {
+      fields[f.id] = { value, clear: false };
+    }
   }
-  const custom = [...document.querySelectorAll('.custom-row')].map((row) => {
-    const [name, value] = row.querySelectorAll('input[type=text]');
-    return { name: name.value.trim(), value: value.value, clear: row.querySelector('input[type=checkbox]').checked };
-  }).filter((c) => c.name !== '');
+  const custom = [];
+  for (const row of document.querySelectorAll('.custom-row')) {
+    const [nameInput, valueInput] = row.querySelectorAll('input[type=text]');
+    const name = nameInput.value.trim();
+    const value = valueInput.value;
+    const clear = row.querySelector('input[type=checkbox]').checked;
+    const baseName = base ? row.dataset.baseName : undefined;
+    if (baseName !== undefined) {
+      if (name !== baseName) custom.push({ name: baseName, value: '', clear: true }); // renamed: old one goes
+      else if (!clear && value === row.dataset.baseValue) continue;
+      else if (!clear && value === '') {
+        custom.push({ name, value: '', clear: true });
+        continue;
+      }
+    }
+    if (name !== '') custom.push({ name, value, clear });
+  }
+  if (base) for (const name of base.removedCustom) custom.push({ name, value: '', clear: true });
   return { fields, custom };
 }
 
 function applyForm(form) {
   for (const f of state.fields) {
     const entry = (form.fields || {})[f.id];
-    writeInput(f, entry && !entry.clear ? entry.value : '');
+    const start = state.prefill && f.id in state.prefill.values ? state.prefill.values[f.id] : '';
+    writeInput(f, entry ? (entry.clear ? '' : entry.value) : start);
     const c = document.getElementById(`c-${f.id}`);
     c.checked = Boolean(entry && entry.clear);
     setDisabled(f, c.checked);
@@ -288,16 +327,78 @@ function updateApply() {
   $('#apply').disabled = state.busy || !ready;
   $('#apply').title = !state.files.length ? 'Add some files first'
     : !customNamesValid(form) ? 'Fix the custom field names first'
-      : !ready ? 'Enter at least one value' : '';
+      : !ready ? (state.prefill ? 'Change at least one value' : 'Enter at least one value') : '';
 }
 
 // ---- Files ------------------------------------------------------------------------
 
+// ---- Pre-filling from a file -------------------------------------------------------
+
+async function loadDetails(file, { confirm = true } = {}) {
+  if (confirm && formHasValues(collectForm())) {
+    const sure = await ask({
+      title: `Fill the form from ${file.name}?`,
+      text: 'This replaces what is in the form now.',
+      buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Replace', value: 'ok', primary: true }],
+    });
+    if (sure !== 'ok') return;
+  }
+  let data;
+  try {
+    data = await bme.prefill(file.path);
+  } catch (e) {
+    showNotice(`Could not read ${file.name}: ${ipcMessage(e)}`);
+    return;
+  }
+  const values = {};
+  for (const f of state.fields) {
+    writeInput(f, data.fields[f.id] ?? '');
+    const c = document.getElementById(`c-${f.id}`);
+    c.checked = false;
+    setDisabled(f, false);
+    values[f.id] = readInput(f);
+  }
+  $('#custom-rows').replaceChildren();
+  for (const c of data.custom) addCustomRow({ ...c, clear: false }, true);
+  state.prefill = { path: file.path, values, removedCustom: new Set() };
+  onFormChange();
+  const n = Object.keys(data.fields).length + data.custom.length;
+  showNotice(n
+    ? `Filled in ${n} value${n > 1 ? 's' : ''} from ${file.name}. Change what you need: anything left as it is stays as it is in the file, and emptying a box removes that value.`
+    : `${file.name} has no details to fill in. Anything you enter will be added.`, { success: true });
+}
+
+// The file the form was filled from has left the batch: its untouched values
+// would otherwise sit in the form looking as if they applied to the others.
+function dropPrefillIfGone() {
+  const p = state.prefill;
+  if (!p || state.files.some((f) => f.path === p.path)) return;
+  for (const f of state.fields) {
+    if (f.id in p.values && sameValue(readInput(f), p.values[f.id])) writeInput(f, '');
+  }
+  for (const row of document.querySelectorAll('.custom-row')) {
+    const [name, value] = row.querySelectorAll('input[type=text]');
+    if (row.dataset.baseName !== undefined && name.value.trim() === row.dataset.baseName && value.value === row.dataset.baseValue) row.remove();
+    else {
+      delete row.dataset.baseName;
+      delete row.dataset.baseValue;
+    }
+  }
+  state.prefill = null;
+  onFormChange();
+}
+
 async function addPaths(paths) {
   if (!paths.length || state.busy) return;
+  const wasEmpty = state.files.length === 0;
   const { accepted, refused } = await bme.validate(paths, state.files.map((f) => f.path));
   for (const a of accepted) state.files.push({ ...a, title: '', status: '', result: null });
   renderFiles();
+  // One file on its own: start the form from what it already holds.
+  if (wasEmpty && state.files.length === 1 && !refused.length && !formHasValues(collectForm())) {
+    await loadDetails(state.files[0], { confirm: false });
+    return;
+  }
   if (refused.length) {
     const counts = {};
     for (const r of refused) counts[r.reason] = (counts[r.reason] || 0) + 1;
@@ -329,7 +430,8 @@ function renderFiles() {
     return el('li', { class: cls, 'data-path': f.path },
       el('span', { class: 'badge', text: FAMILY_BADGE[f.family] }),
       el('button', { type: 'button', class: 'file-name', title: `${f.path}\nClick to see its current metadata`, text: f.name, onclick: () => openDrawer(f) }),
-      el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': `Remove ${f.name}`, text: '✕', disabled: state.busy, onclick: () => { state.files.splice(i, 1); renderFiles(); } }),
+      el('button', { type: 'button', class: 'btn btn-quiet load', text: 'Load details', title: `Fill the form from ${f.name}`, disabled: state.busy, onclick: () => loadDetails(f) }),
+      el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': `Remove ${f.name}`, text: '✕', disabled: state.busy, onclick: () => { state.files.splice(i, 1); renderFiles(); dropPrefillIfGone(); } }),
       title,
       status);
   }));
@@ -522,7 +624,7 @@ function wire() {
     addPaths([...e.target.files].map((f) => bme.pathFor(f)));
     e.target.value = '';
   });
-  $('#clear-all').addEventListener('click', () => { state.files = []; renderFiles(); hideNotice(); });
+  $('#clear-all').addEventListener('click', () => { state.files = []; renderFiles(); hideNotice(); dropPrefillIfGone(); });
 
   $('#filter').addEventListener('input', applyFilter);
   $('#strip').addEventListener('change', updateApply);
@@ -553,7 +655,7 @@ function wire() {
     });
     if (!name || name === 'cancel') return;
     try {
-      const saved = await bme.presets.save(name, collectForm());
+      const saved = await bme.presets.save(name, collectForm({ all: true }));
       await refreshPresets(saved);
     } catch (e) {
       showNotice(ipcMessage(e));

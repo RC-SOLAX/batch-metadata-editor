@@ -131,7 +131,7 @@ input:disabled, textarea:disabled, select:disabled { opacity: .45; }
 .file-list { list-style: none; margin: 8px 0 0; padding: 0 12px 12px; overflow: auto; flex: 1; }
 .file {
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px 1fr auto auto;
   gap: 4px 8px;
   align-items: center;
   padding: 8px;
@@ -162,8 +162,9 @@ input:disabled, textarea:disabled, select:disabled { opacity: .45; }
   white-space: nowrap;
 }
 .file-name:hover { text-decoration: underline; }
-.file-title { grid-column: 2 / 4; width: 100%; }
-.file-status { grid-column: 1 / 4; font-size: 12px; color: var(--muted); }
+.file-title { grid-column: 2 / 5; width: 100%; }
+.file .load { font-size: 12px; padding: 2px 8px; }
+.file-status { grid-column: 1 / 5; font-size: 12px; color: var(--muted); }
 .file-status:empty { display: none; }
 .file.ok { border-color: var(--ok); }
 .file.ok .file-status { color: var(--ok); }

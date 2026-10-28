@@ -379,3 +379,17 @@ test('File created sets the Windows creation date (Windows only; skipped and rep
     assert.deepEqual(r.skipped, ['file_created']);
   }
 });
+
+test('copies keep the original file dates unless new ones are entered', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const p = copyTo(src, 'a.pdf');
+  const then = new Date(2024, 0, 2, 3, 4, 5);
+  fs.utimesSync(p, then, then);
+  const before = fs.statSync(p);
+  const [r] = await runBatch({ files: [{ path: p }], form: form({ title: v('T') }), outDir: out });
+  assert.equal(r.ok, true, r.error);
+  const after = fs.statSync(path.join(out, 'a.pdf'));
+  assert.equal(Math.round(after.mtimeMs / 1000), Math.round(before.mtimeMs / 1000));
+  if (process.platform === 'win32') assert.equal(localStamp(after.birthtime), localStamp(before.birthtime));
+});

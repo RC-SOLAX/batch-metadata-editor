@@ -198,13 +198,15 @@ function localStamp(d) {
 }
 
 // Set the file's own created/modified dates (what Windows shows in
-// Properties), then check them against the file system. Creation first:
-// setting it must not disturb the modified date set after it.
-async function applyFileDates(file, fileDates, writers) {
+// Properties), then check them against the file system. Dates not entered
+// are carried over from the original: the copy is the same document, edited.
+// Creation first: setting it must not disturb the modified date set after it.
+async function applyFileDates(file, fileDates, writers, source) {
   const created = fileDates['System:FileCreateDate'];
   const modified = fileDates['System:FileModifyDate'];
   if (created) await writers.setFileCreateDate(file, created.value);
-  if (modified) fs.utimesSync(file, new Date(), new Date(normalise(modified.value, 'datetime')));
+  else if (supports(path.extname(file), 'System:FileCreateDate')) await writers.setFileCreateDate(file, source.birthtime);
+  fs.utimesSync(file, new Date(), modified ? new Date(normalise(modified.value, 'datetime')) : source.mtime);
   const st = fs.statSync(file);
   const bad = [];
   if (created && localStamp(st.birthtime) !== normalise(created.value, 'datetime')) {
@@ -245,6 +247,7 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
       const tmp = path.join(outDir, `.${crypto.randomUUID().slice(0, 8)}.bme-tmp${ext}`);
       const result = { path: file.path, dest, ok: false };
       try {
+        const sourceStat = fs.statSync(file.path);
         const intended = resolveDetailed(form, family, file.title);
         const skipped = new Set();
         for (const [tag, d] of Object.entries(intended)) {
@@ -272,7 +275,7 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
         // Last guard before anything in the output folder is replaced.
         if (fs.existsSync(dest) && files.some((f) => sameEntry(f.path, dest))) throw new Error(SOURCE_FOLDER);
         fs.renameSync(tmp, dest);
-        bad.push(...await applyFileDates(dest, fileDates, writers));
+        bad.push(...await applyFileDates(dest, fileDates, writers, sourceStat));
         result.skipped = [...skipped];
         if (bad.length) {
           result.mismatched = [...new Set(bad.map((b) => b.source))];

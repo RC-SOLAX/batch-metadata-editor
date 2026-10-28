@@ -153,8 +153,13 @@ function openSession({ customNames = [] } = {}) {
       return finish((res.warnings || []).filter((w) => !/Nothing to do/.test(w)));
     },
     read: (file) => readWith(et, file),
+    // value: a form date-time ("2025-04-01T10:07") or a Date, kept to the second.
     async setFileCreateDate(file, value) {
-      await et.write(file, { 'System:FileCreateDate': toExif(value, 'datetime') }, { writeArgs: ['-overwrite_original'] });
+      const p = (n) => String(n).padStart(2, '0');
+      const stamp = value instanceof Date
+        ? `${value.getFullYear()}:${p(value.getMonth() + 1)}:${p(value.getDate())} ${p(value.getHours())}:${p(value.getMinutes())}:${p(value.getSeconds())}`
+        : toExif(value, 'datetime');
+      await et.write(file, { 'System:FileCreateDate': stamp }, { writeArgs: ['-overwrite_original'] });
     },
     async end() {
       await et.end();

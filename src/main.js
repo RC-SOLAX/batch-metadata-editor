@@ -8,8 +8,7 @@ const { FIELDS, TABS } = require('./fields');
 const { familyOf, ACCEPTED } = require('./formats');
 const { createPresets } = require('./presets');
 const exiftool = require('./writers/exiftool');
-const office = require('./writers/office');
-const id3 = require('./writers/id3');
+const { readMetadata, readForPrefill } = require('./prefill');
 
 // Set by the end-to-end test so no folder dialog is shown. Read once, here.
 const TEST_OUTDIR = process.env.BME_TEST_OUTDIR || null;
@@ -54,13 +53,6 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'));
 }
 
-const readers = {
-  pdf: exiftool.readCurrent,
-  image: exiftool.readCurrent,
-  media: exiftool.readCurrent,
-  office: office.read,
-  mp3: id3.read,
-};
 
 function registerIpc() {
   ipcMain.handle('fields', () => ({ fields: FIELDS, tabs: TABS }));
@@ -92,12 +84,12 @@ function registerIpc() {
   });
 
   ipcMain.handle('read-current', async (_e, file) => {
-    const read = readers[familyOf(file)];
-    if (!read) throw new Error('Unsupported file type');
-    const all = await read(file);
+    const all = await readMetadata(file);
     // Drop the writer's internal aliases; the panel shows what is in the file.
     return Object.fromEntries(Object.entries(all).filter(([k, v]) => !k.endsWith('@file') && k !== 'EXIF:GPS' && v !== undefined));
   });
+
+  ipcMain.handle('prefill', (_e, file) => readForPrefill(file));
 
   ipcMain.handle('get-output-folder', () => {
     if (TEST_OUTDIR) return TEST_OUTDIR;

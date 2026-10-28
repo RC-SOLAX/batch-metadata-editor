@@ -114,3 +114,74 @@ test('a missing output folder is reported, not silently ignored', async () => {
     await app.close();
   }
 });
+
+// --- Pre-filling the form from a file ---------------------------------------------
+
+const { runBatch } = require('../src/batch');
+
+async function taggedPdf(name, title, author) {
+  const stage = tmpDir();
+  const src = path.join(stage, 'in.pdf');
+  fs.copyFileSync(fixture('a.pdf'), src);
+  const outDir = tmpDir();
+  const [r] = await runBatch({ files: [{ path: src, title }], form: { fields: { author: { value: author, clear: false } }, custom: [] }, outDir });
+  if (!r.ok) throw new Error(r.error);
+  const dest = path.join(tmpDir(), name);
+  fs.copyFileSync(path.join(outDir, 'in.pdf'), dest);
+  return dest;
+}
+
+test('one file pre-fills the form, and only what you change is written', async () => {
+  const p = await taggedPdf('briefing.pdf', 'Original title', 'Original author');
+  const out = tmpDir();
+  const { app, win } = await launch(out);
+  try {
+    await win.setInputFiles('#file-input', [p]);
+    await expect(win.locator('#f-title')).toHaveValue('Original title');
+    await expect(win.locator('#f-author')).toHaveValue('Original author');
+    await expect(win.locator('#f-pdf_title')).toHaveValue('Original title');
+    await expect(win.locator('#apply')).toBeDisabled(); // nothing changed yet
+    await win.fill('#f-author', 'New author');
+    await win.click('#apply');
+    await expect(win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
+  } finally {
+    await app.close();
+  }
+  const raw = await readRaw(path.join(out, 'briefing.pdf'));
+  expect(raw['PDF:Author']).toBe('New author');
+  expect(raw['PDF:Title']).toBe('Original title');
+});
+
+test('emptying a pre-filled field removes that value from the file', async () => {
+  const p = await taggedPdf('briefing.pdf', 'Keep me', 'Remove me');
+  const out = tmpDir();
+  const { app, win } = await launch(out);
+  try {
+    await win.setInputFiles('#file-input', [p]);
+    await expect(win.locator('#f-author')).toHaveValue('Remove me');
+    await win.fill('#f-author', '');
+    await win.click('#apply');
+    await expect(win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
+  } finally {
+    await app.close();
+  }
+  const raw = await readRaw(path.join(out, 'briefing.pdf'));
+  expect(raw['PDF:Author']).toBeUndefined();
+  expect(raw['PDF:Title']).toBe('Keep me');
+});
+
+test('in a batch, Load details fills the form from the chosen file', async () => {
+  const one = await taggedPdf('one.pdf', 'First', 'A');
+  const two = await taggedPdf('two.pdf', 'Second', 'B');
+  const { app, win } = await launch(tmpDir());
+  try {
+    await win.setInputFiles('#file-input', [one, two]);
+    await expect(win.locator('#count')).toHaveText('2 / 20');
+    await expect(win.locator('#f-title')).toHaveValue(''); // two files: nothing pre-filled
+    await win.locator('.file').nth(1).getByRole('button', { name: 'Load details' }).click();
+    await expect(win.locator('#f-title')).toHaveValue('Second');
+    await expect(win.locator('#notice')).toContainText('two.pdf');
+  } finally {
+    await app.close();
+  }
+});

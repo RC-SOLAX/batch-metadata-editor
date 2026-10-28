@@ -32,7 +32,13 @@ and save them as .docx, .xlsx or .pptx first.
 1. **Add files.** Drag them onto the drop area, or click **Add files…**. The
    batch holds up to 20. Anything over the limit, or of a type the app can't
    edit, is turned away, and the app tells you how many and why.
-2. **Fill in the fields.**
+2. **Fill in the fields.** If the batch holds a single file, the form fills
+   in with whatever that file already has: title, author, dates, tags and so
+   on. In a larger batch, click **Load details** on any file to do the same.
+   Only the boxes you change are written, so anything you leave as it was
+   stays exactly as it is in the file and is never copied onto the other
+   files. Emptying a pre-filled box removes that value.
+   The fields:
    - **Common** fields go to every file type that has an equivalent. For
      example, Title becomes the PDF title, the Word title, the image title
      and the MP3 title.
@@ -41,6 +47,7 @@ and save them as .docx, .xlsx or .pptx first.
      value for that format.
    - **File created** and **File modified** (top of the Common tab) set the
      dates Windows shows in a file's Properties › General and in Explorer.
+     If left as they are, each copy keeps its original's dates.
      These are the file's own dates, separate from the dates stored inside a
      document, which programs like Acrobat show. Creation dates can be set on
      Windows only.
