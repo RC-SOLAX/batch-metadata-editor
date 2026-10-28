@@ -24,5 +24,44 @@
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0",
     "pdf-lib": "^1.17.1"
+  },
+  "build": {
+    "appId": "com.rcsolax.batchmetadataeditor",
+    "productName": "Batch Metadata Editor",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "ui/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/exiftool-vendored*/**"
+    ],
+    "extraResources": [
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Batch Metadata Editor",
+      "artifactName": "Batch-Metadata-Editor-Setup-${version}.${ext}"
+    },
+    "publish": null
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RC-SOLAX/batch-metadata-editor.git"
   }
 }
