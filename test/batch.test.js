@@ -2,7 +2,7 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { validateBatch, resolveValues, outputPaths, runBatch, MAX_FILES } = require('../src/batch');
+const { validateBatch, resolveValues, outputPaths, runBatch, checkOutDir, MAX_FILES } = require('../src/batch');
 const { fixture, tmpDir, readRaw, rawEt } = require('./helpers/common');
 
 after(() => rawEt.end());
@@ -181,4 +181,119 @@ test('custom fields and clears reach the files', async () => {
   const pdf = await readRaw(path.join(out, 'a.pdf'));
   assert.equal(pdf['PDF:Batch_Ref'], 'R-9');
   assert.equal(pdf['PDF:Author'], undefined);
+});
+
+// --- Final-review fixes ---------------------------------------------------------
+
+const { ExifTool } = require('exiftool-vendored');
+
+test('strip leaves only the copies in the output folder, with the old metadata gone', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const names = ['oriented.jpg', 'secret.pdf', 'a.mp4'];
+  const results = await runBatch({
+    files: names.map((n) => ({ path: copyTo(src, n) })), form: form({ title: v('New') }), outDir: out, strip: true,
+  });
+  for (const r of results) assert.equal(r.ok, true, `${r.path}: ${r.error}`);
+  assert.deepEqual(fs.readdirSync(out).sort(), [...names].sort(), 'no backup or temp files');
+  assert.equal((await readRaw(path.join(out, 'oriented.jpg')))['IFD0:Make'], undefined);
+});
+
+test('strip keeps how a photo is displayed: orientation and colour profile', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({ files: [{ path: copyTo(src, 'oriented.jpg') }], form: form({ title: v('T') }), outDir: out, strip: true });
+  assert.equal(r.ok, true, r.error);
+  const raw = await readRaw(path.join(out, 'oriented.jpg'));
+  assert.equal(raw['IFD0:Orientation'], 'Rotate 90 CW');
+  assert.equal(raw['ICC_Profile:ProfileDescription'], 'sRGB built-in');
+  assert.equal(raw['IFD0:Make'], undefined);
+});
+
+// ExifTool edits PDFs incrementally; "-PDF-update:all=" rolls those edits back.
+async function revertPdfEdits(file) {
+  const et = new ExifTool({ maxProcs: 1 });
+  try {
+    await et.write(file, {}, { writeArgs: ['-PDF-update:all=', '-overwrite_original'] });
+  } catch { /* nothing to revert is fine */ }
+  const raw = await et.readRaw(file, ['-G1', '-a']);
+  await et.end();
+  return raw;
+}
+
+test('stripping a PDF removes the old values for good', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({ files: [{ path: copyTo(src, 'secret.pdf') }], form: form({ title: v('New') }), outDir: out, strip: true });
+  assert.equal(r.ok, true, r.error);
+  const after = await revertPdfEdits(path.join(out, 'secret.pdf'));
+  assert.equal(after['PDF:Author'], undefined);
+  assert.notEqual(after['PDF:Title'], 'Old');
+});
+
+test('clearing a PDF field removes the old value for good', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({
+    files: [{ path: copyTo(src, 'secret.pdf') }], form: form({ author: { value: '', clear: true } }), outDir: out,
+  });
+  assert.equal(r.ok, true, r.error);
+  assert.equal((await revertPdfEdits(path.join(out, 'secret.pdf')))['PDF:Author'], undefined);
+});
+
+test('number-like text such as 1.50 is verified as entered', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const results = await runBatch({
+    files: ['a.pdf', 'a.jpg', 'a.png', 'a.mp4'].map((n) => ({ path: copyTo(src, n) })),
+    form: form({ title: v('1.50') }, [{ name: 'Version', value: '2.10', clear: false }]),
+    outDir: out,
+  });
+  for (const r of results) assert.equal(r.ok, true, `${path.basename(r.path)}: ${r.error}`);
+});
+
+test('MP3 year, date, track and disc in the wrong form are reported, not passed', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [bad] = await runBatch({
+    files: [{ path: copyTo(src, 'a.mp3') }],
+    form: form({ mp3_year: v('Twenty26'), mp3_track: v('three'), mp3_disc: v('1 of 2'), mp3_date: v('1st May'), mp3_title: v('Fine') }),
+    outDir: out,
+  });
+  assert.equal(bad.ok, false);
+  assert.deepEqual([...bad.mismatched].sort(), ['mp3_date', 'mp3_disc', 'mp3_track', 'mp3_year']);
+  assert.equal((await readRaw(path.join(out, 'a.mp3')))['ID3v2_3:Title'], 'Fine', 'the valid fields are still written');
+
+  const out2 = tmpDir();
+  const [good] = await runBatch({
+    files: [{ path: copyTo(src, 'a.mp3', 'b.mp3') }],
+    form: form({ mp3_year: v('2026'), mp3_track: v('3/12'), mp3_disc: v('1'), mp3_date: v('0105') }),
+    outDir: out2,
+  });
+  assert.equal(good.ok, true, good.error);
+});
+
+test('an ID3v2.4 recording time becomes a v2.3 year', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({ files: [{ path: copyTo(src, 'v24.mp3') }], form: form({ title: v('New') }), outDir: out });
+  assert.equal(r.ok, true, r.error);
+  const raw = await readRaw(path.join(out, 'v24.mp3'));
+  assert.equal(String(raw['ID3v2_3:Year']), '2019');
+  assert.deepEqual(Object.keys(raw).filter((k) => /RecordingTime|^ID3v2_4:/.test(k)), []);
+});
+
+test('an output folder that is the source folder under another name is refused', async () => {
+  const src = tmpDir();
+  const p = copyTo(src, 'a.pdf');
+  const alias = path.join(tmpDir(), 'alias');
+  fs.symlinkSync(src, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const before = fs.readFileSync(p);
+  assert.throws(() => checkOutDir([p], alias), /Output folder is a source folder/);
+  await assert.rejects(runBatch({ files: [{ path: p }], form: form({ title: v('T') }), outDir: alias, onConflict: 'overwrite' }), /Output folder is a source folder/);
+  assert.deepEqual(fs.readFileSync(p), before, 'the original is untouched');
+});
+
+test('checkOutDir reports a missing output folder plainly', () => {
+  assert.throws(() => checkOutDir(['/x/a.pdf'], path.join(tmpDir(), 'gone')), /Output folder not found/);
 });

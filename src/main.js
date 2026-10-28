@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
-const { validateBatch, runBatch, outputPaths } = require('./batch');
+const { validateBatch, runBatch, outputPaths, checkOutDir } = require('./batch');
 const { FIELDS, TABS } = require('./fields');
 const { familyOf, ACCEPTED } = require('./formats');
 const { createPresets } = require('./presets');
@@ -118,6 +118,9 @@ function registerIpc() {
   });
 
   ipcMain.handle('plan-outputs', (_e, paths, outDir) => {
+    // Refuse a missing folder or one holding the originals before the UI can
+    // offer to overwrite anything there.
+    checkOutDir(paths, outDir);
     const existing = new Set(fs.readdirSync(outDir).map((n) => n.toLowerCase()));
     return outputPaths(paths, outDir, existing).conflicts.map((p) => path.basename(p));
   });

@@ -160,10 +160,39 @@ function compare(intended, read, family) {
   return bad;
 }
 
-async function runBatch({ files, form, outDir, strip = false, onConflict = 'suffix' }, onProgress = () => {}) {
-  if (files.some((f) => samePath(path.dirname(f.path), outDir))) {
-    throw new Error('Output folder is a source folder: choose another, so no original can be replaced');
+const SOURCE_FOLDER = 'Output folder is a source folder: choose another, so no original can be replaced';
+
+// Same file or folder by identity, not by spelling: a mapped drive and its
+// UNC path, a junction or a symlink all name the same folder differently.
+const statId = (p) => {
+  const st = fs.statSync(p, { bigint: true });
+  return `${st.dev}:${st.ino}`;
+};
+function sameEntry(a, b) {
+  if (samePath(a, b)) return true;
+  try {
+    if (samePath(fs.realpathSync.native(a), fs.realpathSync.native(b))) return true;
+    const ia = statId(a);
+    return !ia.endsWith(':0') && ia === statId(b);
+  } catch {
+    return false;
   }
+}
+
+// Throws unless outDir exists and is not the folder of any source file.
+function checkOutDir(paths, outDir) {
+  let st;
+  try {
+    st = fs.statSync(outDir);
+  } catch {
+    throw new Error(`Output folder not found: ${outDir}. Choose it again with Change…`);
+  }
+  if (!st.isDirectory()) throw new Error(`Output folder is not a folder: ${outDir}`);
+  if (paths.some((p) => sameEntry(path.dirname(p), outDir))) throw new Error(SOURCE_FOLDER);
+}
+
+async function runBatch({ files, form, outDir, strip = false, onConflict = 'suffix' }, onProgress = () => {}) {
+  checkOutDir(files.map((f) => f.path), outDir);
   const existing = new Set(fs.readdirSync(outDir).map(nameKey));
   const { dests } = outputPaths(files.map((f) => f.path), outDir, existing);
   const taken = new Set([...dests.values()].map((d) => nameKey(path.basename(d))));
@@ -207,6 +236,8 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
         const tags = Object.fromEntries(Object.entries(intended).map(([t, d]) => [t, d.value]));
         const { warnings = [] } = (await writer.write(file.path, tmp, tags, { strip })) || {};
         const bad = compare(intended, await writer.read(tmp), family);
+        // Last guard before anything in the output folder is replaced.
+        if (fs.existsSync(dest) && files.some((f) => sameEntry(f.path, dest))) throw new Error(SOURCE_FOLDER);
         fs.renameSync(tmp, dest);
         result.skipped = [...skipped];
         if (bad.length) {
@@ -231,4 +262,4 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
   return results;
 }
 
-module.exports = { validateBatch, resolveValues, outputPaths, runBatch, MAX_FILES, REASONS, CUSTOM_NAME };
+module.exports = { validateBatch, resolveValues, outputPaths, runBatch, checkOutDir, MAX_FILES, REASONS, CUSTOM_NAME };

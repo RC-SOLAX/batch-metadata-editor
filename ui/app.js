@@ -430,21 +430,27 @@ function setBusy(busy) {
   renderFiles();
 }
 
+const ipcMessage = (e) => String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
 async function apply() {
+  try {
+    await runApply();
+  } catch (e) {
+    showNotice(ipcMessage(e));
+  }
+}
+
+async function runApply() {
   const form = collectForm();
   if (!state.outDir) {
     const dir = await bme.pickOutputFolder();
     if (!dir) return;
     setOutDir(dir);
   }
-  const sameAsSource = state.files.find((f) => f.path.slice(0, f.path.length - f.name.length - 1).toLowerCase() === state.outDir.toLowerCase());
-  if (sameAsSource) {
-    showNotice('The output folder holds some of the originals. Choose another folder so no original can be replaced.');
-    return;
-  }
 
-  let onConflict = 'suffix';
+  // Also refuses a missing folder, or one holding any of the originals.
   const conflicts = await bme.planOutputs(state.files.map((f) => f.path), state.outDir);
+  let onConflict = 'suffix';
   if (conflicts.length) {
     const shown = conflicts.slice(0, 6).join('\n') + (conflicts.length > 6 ? `\n…and ${conflicts.length - 6} more` : '');
     const choice = await ask({
@@ -488,8 +494,6 @@ async function apply() {
       success: ok === results.length,
       action: el('button', { type: 'button', class: 'btn', text: 'Open folder', onclick: () => bme.openFolder(dir) }),
     });
-  } catch (e) {
-    showNotice(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
   } finally {
     stop();
     setBusy(false);
@@ -552,7 +556,7 @@ function wire() {
       const saved = await bme.presets.save(name, collectForm());
       await refreshPresets(saved);
     } catch (e) {
-      showNotice(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+      showNotice(ipcMessage(e));
     }
   });
   $('#preset-delete').addEventListener('click', async () => {

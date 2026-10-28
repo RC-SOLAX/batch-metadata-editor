@@ -99,3 +99,18 @@ test('an existing output prompts, and "(edited)" keeps the old file', async () =
   expect(fs.readFileSync(path.join(out, 'a.pdf'), 'utf8')).toBe('old');
   expect((await readRaw(path.join(out, 'a (edited).pdf')))['PDF:Title']).toBe('T');
 });
+
+test('a missing output folder is reported, not silently ignored', async () => {
+  const src = tmpDir();
+  const p = path.join(src, 'a.pdf');
+  fs.copyFileSync(fixture('a.pdf'), p);
+  const { app, win } = await launch(path.join(tmpDir(), 'unplugged'));
+  try {
+    await win.setInputFiles('#file-input', [p]);
+    await win.fill('#f-title', 'T');
+    await win.click('#apply');
+    await expect(win.locator('#notice')).toContainText('Output folder not found');
+  } finally {
+    await app.close();
+  }
+});

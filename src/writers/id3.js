@@ -13,6 +13,16 @@ const { splitList } = require('../values');
 const RATING_EMAIL = 'Windows Media Player 9 Series';
 const STARS_TO_BYTE = [0, 1, 64, 128, 196, 255];
 const LANG_FRAMES = new Set(['comment', 'unsynchronisedLyrics']);
+// Frames whose text ID3v2.3 readers expect in a fixed form. A value in any
+// other form is not written; the read-back check then reports the field.
+const FORMATS = {
+  year: [/^\d{4}$/, 'a 4-digit year'],
+  date: [/^(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])$/, 'DDMM'],
+  trackNumber: [/^\d{1,4}(\/\d{1,4})?$/, 'a number, or number/total'],
+  partOfSet: [/^\d{1,4}(\/\d{1,4})?$/, 'a number, or number/total'],
+  bpm: [/^\d{1,4}$/, 'a whole number'],
+};
+
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
 
 function byteToStars(b) {
@@ -33,18 +43,42 @@ function readTags(file) {
   return tags || {};
 }
 
-// Apply one form tag to a node-id3 tag object.
+// ID3v2.4 files (Picard, foobar2000) keep the date in TDRC, which ID3v2.3
+// does not have; carry it into the v2.3 year/date frames instead.
+function downgradeV24(tags) {
+  const rt = tags.recordingTime;
+  if (rt) {
+    const m = String(rt).match(/^(\d{4})(?:-(\d{2})-(\d{2}))?/);
+    if (m && !tags.year) tags.year = m[1];
+    if (m && m[2] && !tags.date) tags.date = `${m[3]}${m[2]}`;
+    delete tags.recordingTime;
+  }
+  const ot = tags.originalReleaseTime;
+  if (ot) {
+    const m = String(ot).match(/^(\d{4})/);
+    if (m && !tags.originalYear) tags.originalYear = m[1];
+    delete tags.originalReleaseTime;
+  }
+  delete tags.releaseTime;
+  delete tags.encodingTime;
+  delete tags.taggingTime;
+}
+
+// Apply one form tag to a node-id3 tag object. Returns a warning, or null.
 function apply(tags, tag, value) {
+  if (value !== null && FORMATS[tag] && !FORMATS[tag][0].test(String(value).trim())) {
+    return `${tag} "${value}" was not written: ID3 needs ${FORMATS[tag][1]}`;
+  }
   if (tag.startsWith('TXXX:')) {
     const description = tag.slice(5);
     const list = (tags.userDefinedText || []).filter((t) => t.description !== description);
     if (value !== null) list.push({ description, value: toText(value) });
     tags.userDefinedText = list;
-    return;
+    return null;
   }
   if (value === null) {
     delete tags[tag === 'rating' ? 'popularimeter' : tag];
-    return;
+    return null;
   }
   if (LANG_FRAMES.has(tag)) {
     tags[tag] = { language: 'eng', text: toText(value) };
@@ -58,15 +92,21 @@ function apply(tags, tag, value) {
     if (!MIME[ext]) throw new Error(`Cover art must be a JPG, PNG, GIF or WebP image: ${path.basename(String(value))}`);
     tags.image = { mime: MIME[ext], type: { id: 3, name: 'front cover' }, description: 'Cover', imageBuffer: fs.readFileSync(value) };
   } else {
-    tags[tag] = toText(value);
+    tags[tag] = String(toText(value)).trim();
   }
+  return null;
 }
 
 async function write(src, dest, tags, { strip = false } = {}) {
   fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+  const warnings = [];
   try {
     const merged = strip ? {} : readTags(dest);
-    for (const [tag, value] of Object.entries(tags)) apply(merged, tag, value);
+    downgradeV24(merged);
+    for (const [tag, value] of Object.entries(tags)) {
+      const w = apply(merged, tag, value);
+      if (w) warnings.push(w);
+    }
     if (merged.userDefinedText && !merged.userDefinedText.length) delete merged.userDefinedText;
     const res = NodeID3.write(merged, dest);
     if (res instanceof Error) throw res;
@@ -75,7 +115,7 @@ async function write(src, dest, tags, { strip = false } = {}) {
     fs.rmSync(dest, { force: true });
     throw e;
   }
-  return { warnings: [] };
+  return { warnings };
 }
 
 // Read back in the shape write() takes.

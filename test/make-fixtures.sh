@@ -37,3 +37,20 @@ const {PDFDocument}=require('pdf-lib');
 printf 'not an image\n' > corrupt.jpg
 : > empty.docx
 ls -la
+
+# Review-fix fixtures.
+# oriented.jpg: rotated (Orientation 6), an sRGB ICC profile, and a camera Make.
+python3 - <<'PY'
+from PIL import Image, ImageCms
+im = Image.new('RGB', (16, 8), (20, 120, 200))
+icc = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+exif = Image.Exif(); exif[0x0112] = 6; exif[0x010F] = 'OldCam'
+im.save('oriented.jpg', icc_profile=icc, exif=exif.tobytes())
+PY
+# secret.pdf: Author and Title that a strip must remove for good.
+node -e "
+const {PDFDocument}=require('pdf-lib');
+(async()=>{const d=await PDFDocument.create();d.addPage([200,200]);d.setAuthor('SECRETPERSON');d.setTitle('Old');
+require('fs').writeFileSync('secret.pdf',await d.save())})()"
+# v24.mp3: an ID3v2.4 tag with a recording time (TDRC), as Picard/foobar write.
+ffmpeg -loglevel error -y -i a.mp3 -c copy -id3v2_version 4 -metadata date=2019-05-01 -metadata title=Old v24.mp3

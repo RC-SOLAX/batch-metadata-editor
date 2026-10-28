@@ -45,7 +45,9 @@ and save them as .docx, .xlsx or .pptx first.
 3. **Blank means unchanged.** A field you leave empty doesn't touch the
    file. Tick **Clear** beside a field to remove that value from the files.
    Tick **Remove all existing metadata first** to wipe everything before
-   your values are written.
+   your values are written. Photos keep their rotation and colour profile,
+   because those decide how the picture looks. In PDFs, stripped or cleared
+   values are removed for good: the file is rewritten, not just patched.
 4. **Apply.** Choose the output folder. It can't be a folder the originals
    are in. If a file with the same name is already there, you choose
    whether to overwrite it or add " (edited)" to the new copy's name.

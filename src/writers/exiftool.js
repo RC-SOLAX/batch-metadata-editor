@@ -11,10 +11,17 @@ const { ExifTool } = require('exiftool-vendored');
 const { typeOfTag } = require('../fields');
 const { familyOf } = require('../formats');
 const { toExif } = require('../values');
+const { compactPdf } = require('./pdf-compact');
 
 const XMP_NS = 'http://ns.batchmetadataeditor/1.0/';
 const IPTC_EXTS = ['.jpg', '.jpeg', '.tif', '.tiff'];
-const READ_ARGS = ['-G1', '-a'];
+// StructFormat=JSONQ quotes every value, so text such as "1.50" reads back
+// as typed rather than as the number 1.5.
+const READ_ARGS = ['-G1', '-a', '-api', 'StructFormat=JSONQ'];
+
+// Strip everything, but carry over what decides how an image looks:
+// without these, phone photos turn sideways and wide-gamut colour shifts.
+const STRIP_ARGS = ['-all=', '-tagsFromFile', '@', '-ICC_Profile', '-Orientation'];
 
 // Tags ExifTool stores as true lists. A list value bound for any other tag is
 // joined into one string first; ExifTool would otherwise join it with \x1f.
@@ -125,15 +132,23 @@ function openSession({ customNames = [] } = {}) {
     async write(src, dest, tags, { strip = false } = {}) {
       fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
       const ext = path.extname(dest).toLowerCase();
-      const { out, args } = toExifTool(tags, familyOf(dest));
-      if (strip) await et.deleteAllTags(dest);
+      const family = familyOf(dest);
+      const { out, args } = toExifTool(tags, family);
+      // -overwrite_original on every call: otherwise ExifTool leaves a
+      // "<name>_original" backup, holding the old metadata, beside the copy.
+      if (strip) await et.write(dest, {}, { writeArgs: [...STRIP_ARGS, '-overwrite_original'] });
+      const clears = Object.values(tags).some((v) => v === null);
+      const finish = async (warnings) => {
+        if (family === 'pdf' && (strip || clears)) await compactPdf(dest);
+        return { warnings };
+      };
       const writeArgs = ['-overwrite_original', ...args];
       if (IPTC_EXTS.includes(ext) && Object.keys(out).some((t) => t.startsWith('IPTC:'))) {
         writeArgs.push('-charset', 'iptc=UTF8', '-IPTC:CodedCharacterSet=UTF8');
       }
-      if (!Object.keys(out).length && !args.length) return { warnings: [] };
+      if (!Object.keys(out).length && !args.length) return finish([]);
       const res = await et.write(dest, out, { writeArgs });
-      return { warnings: (res.warnings || []).filter((w) => !/Nothing to do/.test(w)) };
+      return finish((res.warnings || []).filter((w) => !/Nothing to do/.test(w)));
     },
     read: (file) => readWith(et, file),
     async end() {
