@@ -34,6 +34,8 @@ const LIST_TAGS = new Set([
 // IPTC-IIM only lives in JPEG and TIFF; everything else the catalogue maps
 // to a family is writable for every extension in that family.
 function supports(ext, tag) {
+  // Only Windows file systems record a creation date that can be set.
+  if (tag === 'System:FileCreateDate') return process.platform === 'win32';
   const group = tag.split(':')[0];
   if (group === 'IPTC') return IPTC_EXTS.includes(ext.toLowerCase());
   return true;
@@ -151,6 +153,9 @@ function openSession({ customNames = [] } = {}) {
       return finish((res.warnings || []).filter((w) => !/Nothing to do/.test(w)));
     },
     read: (file) => readWith(et, file),
+    async setFileCreateDate(file, value) {
+      await et.write(file, { 'System:FileCreateDate': toExif(value, 'datetime') }, { writeArgs: ['-overwrite_original'] });
+    },
     async end() {
       await et.end();
       fs.rmSync(cfgPath, { force: true });

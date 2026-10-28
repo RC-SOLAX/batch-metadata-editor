@@ -18,7 +18,7 @@ anyway**.
 
 | Files | Where the values go |
 |---|---|
-| PDF (.pdf) | Document properties (Title, Author, Subject, Keywords, Creator, Producer, dates, Trapped) and XMP |
+| PDF (.pdf) | Document properties (Title, Author, Subject, Keywords, Creator, Producer, dates, Trapped), each written to both the Info dictionary and its XMP twin, as Word and Acrobat do; plus further XMP fields |
 | Word, Excel, PowerPoint (.docx .xlsx .pptx and the macro/template variants) | File › Info properties: core, extended (Company, Manager, Hyperlink base…) and custom |
 | Images (.jpg .png .webp .tif .heic) | EXIF (including the Windows title, tags, comments and author fields, plus GPS), IPTC (JPEG and TIFF only), XMP (including alt text) |
 | MP3 (.mp3) | ID3v2.3 tags, including album, track, disc, lyrics, ISRC, rating and cover art |
@@ -39,6 +39,11 @@ and save them as .docx, .xlsx or .pptx first.
    - Each **format tab** (PDF, Office, Images, MP3, Video / M4A) lists every
      field that format can hold. A value entered there overrides the Common
      value for that format.
+   - **File created** and **File modified** (top of the Common tab) set the
+     dates Windows shows in a file's Properties › General and in Explorer.
+     These are the file's own dates, separate from the dates stored inside a
+     document, which programs like Acrobat show. Creation dates can be set on
+     Windows only.
    - **Custom** holds your own name/value pairs, such as `Batch_Ref = 2026-114`.
    - Each file row has its own optional **Title** box, which overrides the
      batch title for that file only.

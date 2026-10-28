@@ -22,7 +22,8 @@ function allTagsFor(file) {
   const tags = {};
   for (const f of FIELDS) {
     for (const tag of f.targets[family] || []) {
-      if (!(tag in tags) && supports(ext, tag)) tags[tag] = sampleFor(f, tag);
+      // File dates are set by the batch on the finished file, not by writers.
+      if (!(tag in tags) && supports(ext, tag) && !tag.startsWith('System:')) tags[tag] = sampleFor(f, tag);
     }
   }
   return tags;

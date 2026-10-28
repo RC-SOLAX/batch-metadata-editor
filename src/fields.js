@@ -24,6 +24,8 @@ const TABS = [
   { id: 'media', label: 'Video / M4A' },
 ];
 
+const everyFamily = (tag) => Object.fromEntries(Object.keys(FAMILY_TABS).map((f) => [f, [tag]]));
+
 const common = (id, label, type, targets, extra = {}) => ({ id, label, type, tab: 'common', targets, ...extra });
 
 // A format-tab field: one family, its own tags.
@@ -38,6 +40,13 @@ const media = only('media');
 
 const FIELDS = [
   // ---- Common: written to every format with an equivalent -----------------
+  // The file's own dates, as Windows shows them in Properties › General and in
+  // Explorer — separate from any date stored inside the document.
+  common('file_created', 'File created', 'datetime', everyFamily('System:FileCreateDate'),
+    { help: 'The Created date in Windows Properties (set on Windows only)' }),
+  common('file_modified', 'File modified', 'datetime', everyFamily('System:FileModifyDate'),
+    { help: 'The Modified date in Windows Properties and Explorer' }),
+
   common('title', 'Title', 'text', {
     pdf: ['PDF:Title', 'XMP-dc:Title'],
     image: ['XMP-dc:Title', 'IPTC:ObjectName', 'IFD0:XPTitle'],
@@ -46,13 +55,12 @@ const FIELDS = [
     mp3: ['title'],
   }),
   common('subject', 'Subject', 'text', {
-    pdf: ['PDF:Subject'],
+    pdf: ['PDF:Subject', 'XMP-dc:Description'],
     image: ['IFD0:XPSubject'],
     office: ['core:subject'],
     mp3: ['subtitle'],
   }),
   common('description', 'Description / comments', 'multiline', {
-    pdf: ['XMP-dc:Description'],
     image: ['XMP-dc:Description', 'IPTC:Caption-Abstract', 'IFD0:ImageDescription', 'IFD0:XPComment'],
     media: ['ItemList:Description', 'ItemList:Comment', 'XMP-dc:Description'],
     office: ['core:description'],
@@ -66,7 +74,7 @@ const FIELDS = [
     mp3: ['artist'],
   }),
   common('keywords', 'Keywords / tags', 'list', {
-    pdf: ['PDF:Keywords', 'XMP-dc:Subject'],
+    pdf: ['PDF:Keywords', 'XMP-pdf:Keywords', 'XMP-dc:Subject'],
     image: ['XMP-dc:Subject', 'IPTC:Keywords', 'IFD0:XPKeywords'],
     media: ['ItemList:Keyword', 'XMP-dc:Subject'],
     office: ['core:keywords'],
@@ -110,16 +118,19 @@ const FIELDS = [
     media: ['XMP-dc:Language'],
     office: ['core:language'],
   }, { help: 'e.g. en-GB' }),
-
   // ---- PDF ------------------------------------------------------------------
-  pdf('title', 'Title', 'text', 'PDF:Title'),
-  pdf('author', 'Author', 'text', 'PDF:Author'),
-  pdf('subject', 'Subject', 'text', 'PDF:Subject'),
-  pdf('keywords', 'Keywords', 'list', 'PDF:Keywords'),
-  pdf('creator', 'Creator (application)', 'text', 'PDF:Creator'),
-  pdf('producer', 'Producer', 'text', 'PDF:Producer'),
-  pdf('createdate', 'Created', 'datetime', 'PDF:CreateDate'),
-  pdf('modifydate', 'Modified', 'datetime', 'PDF:ModifyDate'),
+  // Each document property is written to the Info dictionary AND its XMP
+  // twin: Word and Acrobat write both, and Acrobat shows the XMP copy.
+  pdf('title', 'Title', 'text', ['PDF:Title', 'XMP-dc:Title']),
+  pdf('author', 'Author', 'text', ['PDF:Author', 'XMP-dc:Creator']),
+  pdf('subject', 'Subject', 'text', ['PDF:Subject', 'XMP-dc:Description']),
+  pdf('keywords', 'Keywords', 'list', ['PDF:Keywords', 'XMP-pdf:Keywords']),
+  pdf('creator', 'Creator (application)', 'text', ['PDF:Creator', 'XMP-xmp:CreatorTool']),
+  pdf('producer', 'Producer', 'text', ['PDF:Producer', 'XMP-pdf:Producer']),
+  pdf('createdate', 'Created (inside the document)', 'datetime', ['PDF:CreateDate', 'XMP-xmp:CreateDate'],
+    { help: 'Shown by Acrobat. The Created date in Windows Properties is the file date on the Common tab' }),
+  pdf('modifydate', 'Modified (inside the document)', 'datetime', ['PDF:ModifyDate', 'XMP-xmp:ModifyDate'],
+    { help: 'Shown by Acrobat. The Modified date in Windows Properties is the file date on the Common tab' }),
   pdf('trapped', 'Trapped', 'choice', 'PDF:Trapped', { options: ['True', 'False', 'Unknown'] }),
   pdf('xmp_title', 'XMP title', 'text', 'XMP-dc:Title'),
   pdf('xmp_description', 'XMP description', 'multiline', 'XMP-dc:Description'),

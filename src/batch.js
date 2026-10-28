@@ -191,6 +191,31 @@ function checkOutDir(paths, outDir) {
   if (paths.some((p) => sameEntry(path.dirname(p), outDir))) throw new Error(SOURCE_FOLDER);
 }
 
+// Local "YYYY-MM-DDTHH:MM" of a Date, the shape the form uses.
+function localStamp(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Set the file's own created/modified dates (what Windows shows in
+// Properties), then check them against the file system. Creation first:
+// setting it must not disturb the modified date set after it.
+async function applyFileDates(file, fileDates, writers) {
+  const created = fileDates['System:FileCreateDate'];
+  const modified = fileDates['System:FileModifyDate'];
+  if (created) await writers.setFileCreateDate(file, created.value);
+  if (modified) fs.utimesSync(file, new Date(), new Date(normalise(modified.value, 'datetime')));
+  const st = fs.statSync(file);
+  const bad = [];
+  if (created && localStamp(st.birthtime) !== normalise(created.value, 'datetime')) {
+    bad.push({ tag: 'System:FileCreateDate', source: created.source });
+  }
+  if (modified && localStamp(st.mtime) !== normalise(modified.value, 'datetime')) {
+    bad.push({ tag: 'System:FileModifyDate', source: modified.source });
+  }
+  return bad;
+}
+
 async function runBatch({ files, form, outDir, strip = false, onConflict = 'suffix' }, onProgress = () => {}) {
   checkOutDir(files.map((f) => f.path), outDir);
   const existing = new Set(fs.readdirSync(outDir).map(nameKey));
@@ -222,15 +247,23 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
       try {
         const intended = resolveDetailed(form, family, file.title);
         const skipped = new Set();
-        if (EXIFTOOL_FAMILIES.has(family)) {
-          for (const [tag, d] of Object.entries(intended)) {
-            if (!supports(ext, tag)) {
-              skipped.add(d.source);
-              delete intended[tag];
-            }
+        for (const [tag, d] of Object.entries(intended)) {
+          // A file always has its dates, so "clear" has nothing to remove there.
+          const clearedFileDate = tag.startsWith('System:') && d.value === null;
+          if (!supports(ext, tag) || clearedFileDate) {
+            skipped.add(d.source);
+            delete intended[tag];
           }
-          // A field skipped for one tag but written to another is not skipped.
-          for (const d of Object.values(intended)) skipped.delete(d.source);
+        }
+        // A field skipped for one tag but written to another is not skipped.
+        for (const d of Object.values(intended)) skipped.delete(d.source);
+        // The file's own dates are set last, on the finished file.
+        const fileDates = {};
+        for (const [tag, d] of Object.entries(intended)) {
+          if (tag.startsWith('System:')) {
+            fileDates[tag] = d;
+            delete intended[tag];
+          }
         }
         const writer = writers.forFamily(family);
         const tags = Object.fromEntries(Object.entries(intended).map(([t, d]) => [t, d.value]));
@@ -239,6 +272,7 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
         // Last guard before anything in the output folder is replaced.
         if (fs.existsSync(dest) && files.some((f) => sameEntry(f.path, dest))) throw new Error(SOURCE_FOLDER);
         fs.renameSync(tmp, dest);
+        bad.push(...await applyFileDates(dest, fileDates, writers));
         result.skipped = [...skipped];
         if (bad.length) {
           result.mismatched = [...new Set(bad.map((b) => b.source))];

@@ -22,7 +22,7 @@ const EXIF_NAME = {
 function allMp3Tags() {
   const tags = {};
   for (const f of FIELDS) {
-    for (const tag of f.targets.mp3 || []) if (!(tag in tags)) tags[tag] = sampleFor(f, tag);
+    for (const tag of f.targets.mp3 || []) if (!(tag in tags) && !tag.startsWith('System:')) tags[tag] = sampleFor(f, tag);
   }
   tags['TXXX:Batch_Ref'] = 'R-1';
   return tags;

@@ -16,7 +16,7 @@ const readIndependent = (file) =>
 function allOfficeTags() {
   const tags = {};
   for (const f of FIELDS) {
-    for (const tag of f.targets.office || []) if (!(tag in tags)) tags[tag] = sampleFor(f, tag);
+    for (const tag of f.targets.office || []) if (!(tag in tags) && !tag.startsWith('System:')) tags[tag] = sampleFor(f, tag);
   }
   tags['custom:Batch_Ref'] = 'R-1';
   return tags;

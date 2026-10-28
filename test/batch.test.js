@@ -40,13 +40,14 @@ test('unsupported and legacy Office files are refused with their reasons', () =>
 
 test('a blank field is omitted and a cleared field becomes null', () => {
   const r = resolveValues(form({ title: v(''), subject: { value: '', clear: true }, keywords: v([]) }), 'pdf');
-  assert.deepEqual(r, { 'PDF:Subject': null });
+  assert.deepEqual(r, { 'PDF:Subject': null, 'XMP-dc:Description': null });
 });
 
 test('the format-tab field beats the common field, for its own family only', () => {
   const f = form({ title: v('Common'), pdf_title: v('PDF only') });
   assert.equal(resolveValues(f, 'pdf')['PDF:Title'], 'PDF only');
-  assert.equal(resolveValues(f, 'pdf')['XMP-dc:Title'], 'Common');
+  assert.equal(resolveValues(f, 'pdf')['XMP-dc:Title'], 'PDF only');
+  assert.equal(resolveValues(f, 'image')['XMP-dc:Title'], 'Common');
   assert.equal(resolveValues(f, 'office')['core:title'], 'Common');
 });
 
@@ -296,4 +297,85 @@ test('an output folder that is the source folder under another name is refused',
 
 test('checkOutDir reports a missing output folder plainly', () => {
   assert.throws(() => checkOutDir(['/x/a.pdf'], path.join(tmpDir(), 'gone')), /Output folder not found/);
+});
+
+// --- PDF fields reach the XMP copy, and Windows file dates -------------------------
+
+// A PDF as Word or Acrobat writes it: the same properties in Info and in XMP.
+async function twinnedPdf(dir) {
+  const p = copyTo(dir, 'a.pdf', 'twinned.pdf');
+  const et = new ExifTool({ maxProcs: 1 });
+  await et.write(p, {
+    'PDF:Title': 'Old', 'PDF:Author': 'Old', 'PDF:Subject': 'Old', 'PDF:Keywords': 'old',
+    'PDF:Creator': 'Microsoft Word', 'PDF:Producer': 'Microsoft Word',
+    'PDF:CreateDate': '2026:10:20 09:00:00', 'PDF:ModifyDate': '2026:10:20 09:00:00',
+    'XMP-dc:Title': 'Old', 'XMP-dc:Creator': 'Old', 'XMP-dc:Description': 'Old', 'XMP-pdf:Keywords': 'old',
+    'XMP-xmp:CreatorTool': 'Microsoft Word', 'XMP-pdf:Producer': 'Microsoft Word',
+    'XMP-xmp:CreateDate': '2026:10:20 09:00:00', 'XMP-xmp:ModifyDate': '2026:10:20 09:00:00',
+  }, { writeArgs: ['-overwrite_original'] });
+  await et.end();
+  return p;
+}
+
+test('PDF tab fields update the XMP copy that Acrobat shows, not just Info', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({
+    files: [{ path: await twinnedPdf(src) }],
+    form: form({
+      pdf_title: v('New title'), pdf_author: v('Ross Cassidy'), pdf_subject: v('New subject'), pdf_keywords: v('a; b'),
+      pdf_creator: v('Ross Cassidy'), pdf_producer: v('Ross Cassidy'),
+      pdf_createdate: v('2025-04-01T10:07'), pdf_modifydate: v('2025-04-01T10:07'),
+    }),
+    outDir: out,
+  });
+  assert.equal(r.ok, true, r.error);
+  const raw = await readRaw(path.join(out, 'twinned.pdf'));
+  assert.equal(raw['XMP-dc:Title'], 'New title');
+  assert.equal(String(raw['XMP-dc:Creator']), 'Ross Cassidy');
+  assert.equal(raw['XMP-dc:Description'], 'New subject');
+  assert.match(raw['XMP-pdf:Keywords'], /^a[;,] ?b$/);
+  assert.equal(raw['XMP-xmp:CreatorTool'], 'Ross Cassidy');
+  assert.equal(raw['XMP-pdf:Producer'], 'Ross Cassidy');
+  assert.match(raw['XMP-xmp:CreateDate'], /^2025:04:01 10:07/);
+  assert.match(raw['XMP-xmp:ModifyDate'], /^2025:04:01 10:07/);
+});
+
+test('Common subject and keywords also update the PDF XMP copy', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({ files: [{ path: await twinnedPdf(src) }], form: form({ subject: v('S'), keywords: v('x; y') }), outDir: out });
+  assert.equal(r.ok, true, r.error);
+  const raw = await readRaw(path.join(out, 'twinned.pdf'));
+  assert.equal(raw['XMP-dc:Description'], 'S');
+  assert.match(raw['XMP-pdf:Keywords'], /^x[;,] ?y$/);
+});
+
+const localStamp = (d) => {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+test('File modified sets the date Windows shows in Properties, for every file type', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const names = ['a.pdf', 'a.docx', 'a.jpg', 'a.mp3', 'a.mp4'];
+  const results = await runBatch({
+    files: names.map((n) => ({ path: copyTo(src, n) })), form: form({ file_modified: v('2025-04-01T10:07') }), outDir: out,
+  });
+  for (const r of results) assert.equal(r.ok, true, `${path.basename(r.path)}: ${r.error}`);
+  for (const n of names) assert.equal(localStamp(fs.statSync(path.join(out, n)).mtime), '2025-04-01T10:07', n);
+});
+
+test('File created sets the Windows creation date (Windows only; skipped and reported elsewhere)', async () => {
+  const src = tmpDir();
+  const out = tmpDir();
+  const [r] = await runBatch({ files: [{ path: copyTo(src, 'a.pdf') }], form: form({ file_created: v('2025-04-01T10:07') }), outDir: out });
+  assert.equal(r.ok, true, r.error);
+  if (process.platform === 'win32') {
+    assert.equal(localStamp(fs.statSync(path.join(out, 'a.pdf')).birthtime), '2025-04-01T10:07');
+    assert.deepEqual(r.skipped, []);
+  } else {
+    assert.deepEqual(r.skipped, ['file_created']);
+  }
 });
