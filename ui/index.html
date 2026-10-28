@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Batch Metadata Editor</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="files" aria-label="Files">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="drop-hint">
+        <div class="drop-icon" aria-hidden="true">⇩</div>
+        <div class="drop-title">Drop files here</div>
+        <div id="drop-hint" class="drop-hint">Up to 20 at a time · PDF, Word, Excel, PowerPoint, JPG, PNG, WebP, TIFF, HEIC, MP3, MP4, M4A, MOV</div>
+        <button type="button" id="add-files" class="btn">Add files…</button>
+        <input type="file" id="file-input" multiple hidden>
+      </div>
+
+      <div class="files-head">
+        <span id="count" class="count">0 / 20</span>
+        <button type="button" id="clear-all" class="btn btn-quiet" disabled>Clear all</button>
+      </div>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+
+      <ul id="file-list" class="file-list" aria-label="Files in this batch"></ul>
+    </section>
+
+    <section class="editor" aria-label="Metadata">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div class="filter-row">
+        <input type="search" id="filter" placeholder="Filter fields…" aria-label="Filter fields">
+        <span class="legend">Blank = leave unchanged · tick <b>Clear</b> to remove a value</span>
+      </div>
+      <div id="panels" class="panels"></div>
+    </section>
+  </main>
+
+  <footer class="bar">
+    <div class="bar-group">
+      <label class="sr-only" for="preset-select">Presets</label>
+      <select id="preset-select"><option value="">Presets…</option></select>
+      <button type="button" id="preset-save" class="btn btn-quiet">Save as preset…</button>
+      <button type="button" id="preset-delete" class="btn btn-quiet" disabled>Delete preset</button>
+    </div>
+    <label class="check">
+      <input type="checkbox" id="strip"> Remove all existing metadata first
+    </label>
+    <div class="bar-group out">
+      <span class="out-label">Save copies to</span>
+      <span id="out-dir" class="out-dir" title="">Not chosen</span>
+      <button type="button" id="out-change" class="btn btn-quiet">Change…</button>
+    </div>
+    <button type="button" id="apply" class="btn btn-primary" disabled>Apply to files</button>
+  </footer>
+
+  <aside id="drawer" class="drawer" aria-label="Current metadata" hidden>
+    <header class="drawer-head">
+      <h2 id="drawer-title">Current metadata</h2>
+      <button type="button" id="drawer-close" class="btn btn-quiet" aria-label="Close">✕</button>
+    </header>
+    <input type="search" id="drawer-filter" placeholder="Filter…" aria-label="Filter current metadata">
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+
+  <dialog id="dialog">
+    <form method="dialog" id="dialog-form">
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-text"></p>
+      <input type="text" id="dialog-input" hidden maxlength="60">
+      <div class="dialog-actions" id="dialog-actions"></div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
