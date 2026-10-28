@@ -92,7 +92,8 @@ Language.
     OriginalTransmissionReference, DateCreated.
   - XMP: dc:*, photoshop:*, Iptc4xmpCore:AltTextAccessibility,
     ExtDescrAccessibility, Location, xmpRights:*.
-- **MP3 (ID3v2.4):** title, artist, album, album artist, composer,
+- **MP3 (ID3v2.3, which is what node-id3 writes and what Windows Explorer
+  reads best):** title, artist, album, album artist, composer,
   conductor, genre, year, date, track number/total, disc number/total, BPM,
   key, language, publisher, copyright, encoded by, ISRC, comment, lyrics,
   original artist, subtitle, grouping, artist URL, cover art (image file).
@@ -102,7 +103,10 @@ Language.
 
 **Custom tab:** name/value pairs. These are written as Office custom
 properties, PDF Info custom keys, and XMP in images/PDF/MP4 (TXXX frames in
-MP3).
+MP3). Names may contain only letters, digits and underscores, and must start
+with a letter. PDF Info and XMP can't hold spaces: in the library check, a
+key named `Second Key` was written wrongly. Custom PDF/XMP keys need an
+ExifTool config, which the app generates for each batch.
 
 The Common and format tabs can both set the same tag. When that happens,
 the format-tab value wins, and the UI marks the overridden Common field for
