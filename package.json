@@ -1,0 +1,28 @@
+{
+  "name": "batch-metadata-editor",
+  "productName": "Batch Metadata Editor",
+  "version": "1.0.0",
+  "description": "Drop up to 20 files, type the metadata, get edited copies.",
+  "main": "src/main.js",
+  "author": "RC-SOLAX",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
+    "test:e2e": "playwright test test/e2e.spec.js",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
+    "exiftool-vendored": "^39.0.1",
+    "jszip": "^3.10.2",
+    "node-id3": "^0.2.9"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "pdf-lib": "^1.17.1"
+  }
+}
