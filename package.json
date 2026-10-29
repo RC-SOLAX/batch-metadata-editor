@@ -1,7 +1,7 @@
 {
   "name": "batch-metadata-editor",
   "productName": "Batch Metadata Editor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Drop up to 20 files, type the metadata, get edited copies.",
   "main": "src/main.js",
   "author": "RC-SOLAX",

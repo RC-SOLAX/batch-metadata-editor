@@ -35,9 +35,22 @@ and save them as .docx, .xlsx or .pptx first.
 2. **Fill in the fields.** If the batch holds a single file, the form fills
    in with whatever that file already has: title, author, dates, tags and so
    on. In a larger batch, click **Load details** on any file to do the same.
-   Only the boxes you change are written, so anything you leave as it was
-   stays exactly as it is in the file and is never copied onto the other
-   files. Emptying a pre-filled box removes that value.
+   Once the form has been filled from a file, each box shows what will happen
+   to it on Apply:
+   - **Changed:** you edited it, and your value goes on every file in the
+     batch.
+   - **Kept:** you ticked **Keep**, so each file keeps its own value.
+     **Keep all** and **Keep none** set every box at once.
+   - **Will be wiped:** you neither changed it nor kept it, so it is removed.
+     So is anything the app has no box for: camera details, editing history,
+     hidden XMP and so on.
+
+   Photo rotation, colour profile and the file's own Created/Modified dates
+   always stay. Apply asks you to confirm before anything is wiped. Your
+   originals are never touched.
+
+   If you don't load a file's details, a blank box means "leave unchanged"
+   and Clear removes a value, as before.
    The fields:
    - **Common** fields go to every file type that has an equivalent. For
      example, Title becomes the PDF title, the Word title, the image title

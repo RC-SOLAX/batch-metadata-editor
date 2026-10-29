@@ -131,14 +131,16 @@ function openSession({ customNames = [] } = {}) {
   });
 
   return {
-    async write(src, dest, tags, { strip = false } = {}) {
+    async write(src, dest, tags, { strip = false, keep = [] } = {}) {
       fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
       const ext = path.extname(dest).toLowerCase();
       const family = familyOf(dest);
       const { out, args } = toExifTool(tags, family);
       // -overwrite_original on every call: otherwise ExifTool leaves a
       // "<name>_original" backup, holding the old metadata, beside the copy.
-      if (strip) await et.write(dest, {}, { writeArgs: [...STRIP_ARGS, '-overwrite_original'] });
+      // Tags to keep are copied back from the file itself (@) as it is stripped.
+      const keepArgs = keep.map((t) => (t === 'EXIF:GPS' ? '-GPS:all' : `-${t.replace(/@file$/, '')}`));
+      if (strip) await et.write(dest, {}, { writeArgs: [...STRIP_ARGS, ...keepArgs, '-overwrite_original'] });
       const clears = Object.values(tags).some((v) => v === null);
       const finish = async (warnings) => {
         if (family === 'pdf' && (strip || clears)) await compactPdf(dest);

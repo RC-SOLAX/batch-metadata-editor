@@ -77,7 +77,12 @@ function toFormValue(raw, field) {
 // read: the reader's {tag: value} map; stat: fs.Stats of the file (or null).
 function prefillFromFile(read, family, stat) {
   const fields = {};
+  const images = []; // picture fields that hold a picture (no path to show)
   for (const f of FIELDS) {
+    if (f.type === 'image') {
+      if ((f.targets[family] || []).some((t) => !isBlank(read[t]))) images.push(f.id);
+      continue;
+    }
     const tags = f.targets[family] || [];
     let value;
     for (const tag of tags) {
@@ -99,7 +104,7 @@ function prefillFromFile(read, family, stat) {
     const value = toFormValue(raw, { type: 'text' });
     if (value !== undefined) custom.push({ name, value });
   }
-  return { fields, custom };
+  return { fields, custom, images };
 }
 
 async function readForPrefill(file) {

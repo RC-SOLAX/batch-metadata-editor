@@ -78,3 +78,10 @@ test('prefillFromFile maps choices case-insensitively and drops values a field c
   assert.equal(fields.pdf_trapped, 'False');
   assert.equal(fields.rating, undefined);
 });
+
+test('picture fields that hold a picture are reported, so they can be kept', async () => {
+  const file = await tagged('a.mp3', { mp3_cover: v(fixture('a.jpg')) });
+  const { fields, images } = await readForPrefill(file);
+  assert.equal(fields.mp3_cover, undefined);
+  assert.deepEqual(images, ['mp3_cover']);
+});

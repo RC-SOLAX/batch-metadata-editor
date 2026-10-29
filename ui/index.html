@@ -31,7 +31,10 @@
       <div class="tabs" role="tablist" id="tabs"></div>
       <div class="filter-row">
         <input type="search" id="filter" placeholder="Filter fields…" aria-label="Filter fields">
-        <span class="legend">Blank = leave unchanged · tick <b>Clear</b> to remove a value</span>
+        <span class="legend normal-legend">Blank = leave unchanged · tick <b>Clear</b> to remove a value</span>
+        <span class="legend wipe-legend">Not changed or kept = wiped</span>
+        <button type="button" id="keep-all" class="btn btn-quiet wipe-only">Keep all</button>
+        <button type="button" id="keep-none" class="btn btn-quiet wipe-only">Keep none</button>
       </div>
       <div id="panels" class="panels"></div>
     </section>

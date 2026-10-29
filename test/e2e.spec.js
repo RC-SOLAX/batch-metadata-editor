@@ -88,8 +88,11 @@ test('an existing output prompts, and "(edited)" keeps the old file', async () =
   const { app, win } = await launch(out);
   try {
     await win.setInputFiles('#file-input', [p]);
+    await expect(win.locator('#notice')).toContainText('Filled in'); // details loaded
     await win.fill('#f-title', 'T');
     await win.click('#apply');
+    await expect(win.locator('#dialog-title')).toContainText('Wipe');
+    await win.click('#dialog-actions button[value="ok"]');
     await expect(win.locator('#dialog-title')).toHaveText('1 file already in that folder');
     await win.click('#dialog-actions button[value="suffix"]');
     await expect(win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
@@ -131,7 +134,7 @@ async function taggedPdf(name, title, author) {
   return dest;
 }
 
-test('one file pre-fills the form, and only what you change is written', async () => {
+test('one file pre-fills the form; on Apply only edited and kept values remain', async () => {
   const p = await taggedPdf('briefing.pdf', 'Original title', 'Original author');
   const out = tmpDir();
   const { app, win } = await launch(out);
@@ -140,9 +143,17 @@ test('one file pre-fills the form, and only what you change is written', async (
     await expect(win.locator('#f-title')).toHaveValue('Original title');
     await expect(win.locator('#f-author')).toHaveValue('Original author');
     await expect(win.locator('#f-pdf_title')).toHaveValue('Original title');
-    await expect(win.locator('#apply')).toBeDisabled(); // nothing changed yet
+    await expect(win.locator('#s-title')).toHaveText('Will be wiped');
+    await win.check('#k-title');
+    await expect(win.locator('#s-title')).toHaveText('Kept');
+    await win.click('#tab-pdf');
+    await expect(win.locator('#k-pdf_title')).toBeChecked(); // same tags, kept together
+    await win.click('#tab-common');
     await win.fill('#f-author', 'New author');
+    await expect(win.locator('#s-author')).toHaveText('Changed');
     await win.click('#apply');
+    await expect(win.locator('#dialog-title')).toContainText('Wipe');
+    await win.click('#dialog-actions button[value="ok"]');
     await expect(win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
   } finally {
     await app.close();
@@ -152,6 +163,44 @@ test('one file pre-fills the form, and only what you change is written', async (
   expect(raw['PDF:Title']).toBe('Original title');
 });
 
+test('untouched values that are not kept are wiped; Keep all keeps everything', async () => {
+  const p = await taggedPdf('briefing.pdf', 'Title A', 'Author A');
+  const outWipe = tmpDir();
+  let launched = await launch(outWipe);
+  try {
+    await launched.win.setInputFiles('#file-input', [p]);
+    await expect(launched.win.locator('#f-title')).toHaveValue('Title A');
+    await launched.win.fill('#f-subject', 'New subject');
+    await launched.win.click('#apply');
+    await launched.win.click('#dialog-actions button[value="ok"]');
+    await expect(launched.win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
+  } finally {
+    await launched.app.close();
+  }
+  let raw = await readRaw(path.join(outWipe, 'briefing.pdf'));
+  expect(raw['PDF:Subject']).toBe('New subject');
+  expect(raw['PDF:Title']).toBeUndefined();
+  expect(raw['PDF:Author']).toBeUndefined();
+
+  const outKeep = tmpDir();
+  launched = await launch(outKeep);
+  try {
+    await launched.win.setInputFiles('#file-input', [p]);
+    await expect(launched.win.locator('#f-title')).toHaveValue('Title A');
+    await launched.win.click('#keep-all');
+    await launched.win.fill('#f-subject', 'New subject');
+    await launched.win.click('#apply');
+    await launched.win.click('#dialog-actions button[value="ok"]');
+    await expect(launched.win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
+  } finally {
+    await launched.app.close();
+  }
+  raw = await readRaw(path.join(outKeep, 'briefing.pdf'));
+  expect(raw['PDF:Subject']).toBe('New subject');
+  expect(raw['PDF:Title']).toBe('Title A');
+  expect(raw['PDF:Author']).toBe('Author A');
+});
+
 test('emptying a pre-filled field removes that value from the file', async () => {
   const p = await taggedPdf('briefing.pdf', 'Keep me', 'Remove me');
   const out = tmpDir();
@@ -159,8 +208,10 @@ test('emptying a pre-filled field removes that value from the file', async () =>
   try {
     await win.setInputFiles('#file-input', [p]);
     await expect(win.locator('#f-author')).toHaveValue('Remove me');
+    await win.check('#k-title');
     await win.fill('#f-author', '');
     await win.click('#apply');
+    await win.click('#dialog-actions button[value="ok"]');
     await expect(win.locator('.file.ok')).toHaveCount(1, { timeout: 30_000 });
   } finally {
     await app.close();

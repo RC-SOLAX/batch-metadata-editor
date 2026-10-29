@@ -179,7 +179,19 @@ function setCustom(doc, name, value) {
 
 const SETTERS = { core: setCore, app: setApp, custom: setCustom };
 
-async function write(src, dest, tags, { strip = false } = {}) {
+// Strip one part, leaving only the properties named in keep ("core:title",
+// "app:Company", "custom:Ref").
+function pruneTo(doc, part, keep) {
+  const root = doc.documentElement;
+  for (const el of elements(root)) {
+    const key = part === 'custom' ? `custom:${el.getAttribute('name')}` : `${part}:${el.localName}`;
+    if (!keep.has(key)) root.removeChild(el);
+  }
+  if (part === 'custom') elements(root).forEach((p, i) => p.setAttribute('pid', String(i + 2)));
+}
+
+async function write(src, dest, tags, { strip = false, keep = [] } = {}) {
+  const keepSet = new Set(keep);
   fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
   try {
     const zip = await loadZip(dest);
@@ -210,7 +222,7 @@ async function write(src, dest, tags, { strip = false } = {}) {
           packageChanged = true;
         }
       } else if (strip) {
-        doc = parse(PARTS[part].empty);
+        pruneTo(doc, part, keepSet);
       }
       for (const [name, value] of Object.entries(byPart[part])) SETTERS[part](doc, name, value);
       zip.file(target, serialise(doc));

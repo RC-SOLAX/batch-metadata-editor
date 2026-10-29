@@ -218,7 +218,23 @@ async function applyFileDates(file, fileDates, writers, source) {
   return bad;
 }
 
-async function runBatch({ files, form, outDir, strip = false, onConflict = 'suffix' }, onProgress = () => {}) {
+// Tags to carry through a strip for one family: those of every kept field
+// and kept custom name. File dates are never stripped, so they are not here.
+function keptTags(keep, family) {
+  const tags = new Set();
+  for (const id of keep.fields || []) {
+    const f = FIELDS.find((x) => x.id === id);
+    for (const tag of (f && f.targets[family]) || []) if (!tag.startsWith('System:')) tags.add(tag);
+  }
+  for (const name of keep.custom || []) for (const tag of customTags(name, family)) tags.add(tag);
+  return tags;
+}
+
+// wipe: each copy keeps only the fields edited in the form and the fields in
+// keep ({fields: [ids], custom: [names]}), each file its own kept values;
+// everything else in the file is removed, as with strip.
+async function runBatch({ files, form, outDir, strip = false, wipe = false, keep = {}, onConflict = 'suffix' }, onProgress = () => {}) {
+  if (wipe) strip = true;
   checkOutDir(files.map((f) => f.path), outDir);
   const existing = new Set(fs.readdirSync(outDir).map(nameKey));
   const { dests } = outputPaths(files.map((f) => f.path), outDir, existing);
@@ -233,7 +249,7 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
     }
   }
 
-  const customNames = (form.custom || []).map((c) => c.name).filter((n) => CUSTOM_NAME.test(n));
+  const customNames = [...new Set([...(form.custom || []).map((c) => c.name), ...(keep.custom || [])])].filter((n) => CUSTOM_NAME.test(n));
   const writers = openWriters({ customNames });
   const results = [];
   try {
@@ -270,8 +286,17 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
         }
         const writer = writers.forFamily(family);
         const tags = Object.fromEntries(Object.entries(intended).map(([t, d]) => [t, d.value]));
-        const { warnings = [] } = (await writer.write(file.path, tmp, tags, { strip })) || {};
-        const bad = compare(intended, await writer.read(tmp), family);
+        // Kept tags this file has: carried through the strip, then checked.
+        const keepSet = wipe ? keptTags(keep, family) : new Set();
+        for (const t of Object.keys(tags)) keepSet.delete(t); // an edit wins over keep
+        const before = keepSet.size ? await writer.read(file.path) : {};
+        const keepIntended = {};
+        for (const t of keepSet) {
+          if (before[t] !== undefined) keepIntended[t] = { value: before[t], source: 'keep' };
+        }
+        const { warnings = [] } = (await writer.write(file.path, tmp, tags, { strip, keep: [...keepSet] })) || {};
+        const after = await writer.read(tmp);
+        const bad = [...compare(intended, after, family), ...compare(keepIntended, after, family)];
         // Last guard before anything in the output folder is replaced.
         if (fs.existsSync(dest) && files.some((f) => sameEntry(f.path, dest))) throw new Error(SOURCE_FOLDER);
         fs.renameSync(tmp, dest);
