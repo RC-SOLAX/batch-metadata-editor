@@ -28,7 +28,12 @@ const state = {
   activeTab: 'common',
   outDir: null,
   busy: false,
+  // Pre-filled from a file: the value each input started with. A field still
+  // equal to it is left alone; emptying it removes the value from the files.
+  prefill: null, // { path, values: {fieldId: inputValue}, removedCustom: Set }
 };
+
+const sameValue = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
 
 // ---- Field section headings (derived from the first tag's group) -----------
 
@@ -164,30 +169,45 @@ function buildEditor() {
 function fieldRow(f) {
   const input = inputFor(f);
   const clear = el('input', { type: 'checkbox', id: `c-${f.id}`, onchange: (e) => { setDisabled(f, e.target.checked); onFormChange(); } });
+  const keep = el('input', { type: 'checkbox', id: `k-${f.id}`, onchange: (e) => { syncKeep(f, e.target.checked); onFormChange(); } });
   const families = Object.keys(f.targets).map((k) => FAMILY_LABEL[k]);
   const meta = el('div', { class: 'meta' },
+    el('span', { class: 'status', id: `s-${f.id}` }),
     f.help ? `${f.help} · ` : '',
     f.tab === 'common' ? `Writes to: ${families.join(' · ')}` : `Writes ${f.targets[Object.keys(f.targets)[0]].join(', ').replace(/@file/g, '')}`,
     el('span', { class: 'override', id: `o-${f.id}`, hidden: true }));
   const row = el('div', { class: 'field', id: `row-${f.id}`, 'data-label': `${f.label} ${f.id}`.toLowerCase() },
     el('label', { for: `f-${f.id}`, text: f.label }),
     el('div', { class: 'control' }, input),
-    el('label', { class: 'clear', title: 'Remove this value from the files' }, clear, ' Clear'),
+    el('div', { class: 'checks' },
+      el('label', { class: 'clear', title: 'Remove this value from the files' }, clear, ' Clear'),
+      el('label', { class: `keep${isFileDate(f) ? ' no-keep' : ''}`, title: "Keep each file's own value for this field" }, keep, ' Keep')),
     meta);
   row.addEventListener('input', onFormChange);
   row.addEventListener('change', onFormChange);
   return row;
 }
 
-function addCustomRow(entry = { name: '', value: '', clear: false }) {
+function addCustomRow(entry = { name: '', value: '', clear: false }, prefilled = false) {
   const err = el('div', { class: 'err' });
   const name = el('input', { type: 'text', placeholder: 'Name, e.g. Batch_Ref', 'aria-label': 'Custom field name', value: entry.name, maxlength: 64 });
   const value = el('input', { type: 'text', placeholder: 'Value', 'aria-label': 'Custom field value', value: entry.value });
   const clear = el('input', { type: 'checkbox', checked: entry.clear });
+  const keep = el('input', { type: 'checkbox', class: 'keep-box' });
   const row = el('div', { class: 'custom-row' }, name, value,
-    el('label', { class: 'clear', title: 'Remove this property from the files' }, clear, ' Clear'),
-    el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': 'Remove this custom field', text: '✕', onclick: () => { row.remove(); onFormChange(); } }),
+    el('div', { class: 'checks' },
+      el('label', { class: 'clear', title: 'Remove this property from the files' }, clear, ' Clear'),
+      prefilled ? el('label', { class: 'keep', title: "Keep each file's own value for this property" }, keep, ' Keep') : null),
+    el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': 'Remove this custom field', text: '✕', onclick: () => {
+      if (row.dataset.baseName !== undefined && state.prefill) state.prefill.removedCustom.add(row.dataset.baseName);
+      row.remove();
+      onFormChange();
+    } }),
     err);
+  if (prefilled) {
+    row.dataset.baseName = entry.name;
+    row.dataset.baseValue = entry.value;
+  }
   const check = () => {
     const bad = name.value !== '' && !CUSTOM_NAME.test(name.value);
     name.classList.toggle('invalid', bad);
@@ -216,24 +236,114 @@ function applyFilter() {
 
 // ---- The form as data ------------------------------------------------------------
 
-function collectForm() {
+// The form as data. By default only what will change the files: with a
+// pre-fill, a field left as it was is omitted and an emptied one is a clear.
+// { all: true } returns everything visible, for saving as a preset.
+function collectForm({ all = false } = {}) {
+  const base = !all && state.prefill ? state.prefill : null;
   const fields = {};
   for (const f of state.fields) {
     const clear = document.getElementById(`c-${f.id}`).checked;
     const value = readInput(f);
-    if (clear || value !== '') fields[f.id] = { value: clear ? '' : value, clear };
+    if (clear) {
+      fields[f.id] = { value: '', clear: true };
+    } else if (base && f.id in base.values) {
+      if (sameValue(value, base.values[f.id])) continue;
+      fields[f.id] = value === '' ? { value: '', clear: true } : { value, clear: false };
+    } else if (value !== '') {
+      fields[f.id] = { value, clear: false };
+    }
   }
-  const custom = [...document.querySelectorAll('.custom-row')].map((row) => {
-    const [name, value] = row.querySelectorAll('input[type=text]');
-    return { name: name.value.trim(), value: value.value, clear: row.querySelector('input[type=checkbox]').checked };
-  }).filter((c) => c.name !== '');
-  return { fields, custom };
+  const custom = [];
+  for (const row of document.querySelectorAll('.custom-row')) {
+    const [nameInput, valueInput] = row.querySelectorAll('input[type=text]');
+    const name = nameInput.value.trim();
+    const value = valueInput.value;
+    const clear = row.querySelector('.clear input').checked;
+    const baseName = base ? row.dataset.baseName : undefined;
+    if (baseName !== undefined) {
+      if (name !== baseName) custom.push({ name: baseName, value: '', clear: true }); // renamed: old one goes
+      else if (!clear && value === row.dataset.baseValue) continue;
+      else if (!clear && value === '') {
+        custom.push({ name, value: '', clear: true });
+        continue;
+      }
+    }
+    if (name !== '') custom.push({ name, value, clear });
+  }
+  if (base) for (const name of base.removedCustom) custom.push({ name, value: '', clear: true });
+  if (all || !state.prefill) return { fields, custom };
+  // Wipe mode: what each file keeps of its own.
+  const keep = {
+    fields: state.fields.filter((f) => document.getElementById(`k-${f.id}`).checked).map((f) => f.id),
+    custom: [...document.querySelectorAll('.custom-row')]
+      .filter((row) => row.dataset.baseName !== undefined && row.querySelector('.keep-box')?.checked)
+      .map((row) => row.dataset.baseName),
+  };
+  return { fields, custom, keep };
+}
+
+const isFileDate = (f) => Object.values(f.targets).flat().some((t) => t.startsWith('System:'));
+
+// Fields that write the same tags (Common Title and the PDF tab's Title) are
+// one value in the file, so they are kept or not together.
+function syncKeep(f, on) {
+  const fam = state.prefill && state.prefill.family;
+  if (!fam) return;
+  const tags = f.targets[fam] || [];
+  for (const g of state.fields) {
+    if (g !== f && (g.targets[fam] || []).some((t) => tags.includes(t))) document.getElementById(`k-${g.id}`).checked = on;
+  }
+}
+
+function setAllKeeps(on) {
+  for (const f of state.fields) document.getElementById(`k-${f.id}`).checked = on;
+  for (const box of document.querySelectorAll('.custom-row .keep-box')) box.checked = on;
+  onFormChange();
+}
+
+// Changed / kept / wiped counts by value, not by box: boxes that write the
+// same tags in the loaded file (Common Title, PDF Title, PDF XMP title) are
+// one value there. A group is changed if any box in it is, else kept if any is.
+function valueCounts(form) {
+  const fam = state.prefill.family;
+  const counts = { Changed: 0, Kept: 0, 'Will be wiped': 0 };
+  const seen = new Set();
+  for (const f of state.fields.filter((x) => !isFileDate(x) && (x.targets[fam] || []).length)) {
+    if (seen.has(f.id)) continue;
+    const group = [f];
+    seen.add(f.id);
+    for (let i = 0; i < group.length; i++) {
+      const tags = group[i].targets[fam];
+      for (const g of state.fields) {
+        if (!seen.has(g.id) && (g.targets[fam] || []).some((t) => tags.includes(t))) {
+          seen.add(g.id);
+          group.push(g);
+        }
+      }
+    }
+    const states = group.map((g) => fieldStatus(g, form));
+    const st = ['Changed', 'Kept', 'Will be wiped'].find((x) => states.includes(x));
+    if (st) counts[st]++;
+  }
+  return counts;
+}
+
+// What happens to each pre-filled field on Apply.
+function fieldStatus(f, form) {
+  const entry = form.fields[f.id];
+  if (entry && !entry.clear) return 'Changed';
+  if (isFileDate(f)) return 'Kept';
+  const had = (state.prefill.values[f.id] ?? '') !== '' || state.prefill.images.includes(f.id);
+  if (document.getElementById(`k-${f.id}`).checked) return had ? 'Kept' : '';
+  return had ? 'Will be wiped' : '';
 }
 
 function applyForm(form) {
   for (const f of state.fields) {
     const entry = (form.fields || {})[f.id];
-    writeInput(f, entry && !entry.clear ? entry.value : '');
+    const start = state.prefill && f.id in state.prefill.values ? state.prefill.values[f.id] : '';
+    writeInput(f, entry ? (entry.clear ? '' : entry.value) : start);
     const c = document.getElementById(`c-${f.id}`);
     c.checked = Boolean(entry && entry.clear);
     setDisabled(f, c.checked);
@@ -266,6 +376,17 @@ function onFormChange() {
   }
   for (const f of state.fields) document.getElementById(`row-${f.id}`).classList.toggle('filled', Boolean(form.fields[f.id]));
 
+  const wipe = Boolean(state.prefill);
+  document.body.classList.toggle('wipe-mode', wipe);
+  $('#strip').disabled = wipe;
+  if (wipe) $('#strip').checked = true;
+  for (const f of state.fields) {
+    const st = document.getElementById(`s-${f.id}`);
+    const text = wipe ? fieldStatus(f, form) : '';
+    st.textContent = text;
+    st.dataset.state = text.split(' ')[0].toLowerCase();
+  }
+
   // Common fields overridden by a format-tab field for some families.
   for (const f of state.fields.filter((x) => x.tab === 'common')) {
     const note = document.getElementById(`o-${f.id}`);
@@ -284,20 +405,93 @@ function onFormChange() {
 
 function updateApply() {
   const form = collectForm();
-  const ready = state.files.length > 0 && (formHasValues(form) || $('#strip').checked) && customNamesValid(form);
+  const ready = state.files.length > 0 && (formHasValues(form) || $('#strip').checked || Boolean(state.prefill)) && customNamesValid(form);
   $('#apply').disabled = state.busy || !ready;
   $('#apply').title = !state.files.length ? 'Add some files first'
     : !customNamesValid(form) ? 'Fix the custom field names first'
-      : !ready ? 'Enter at least one value' : '';
+      : !ready ? (state.prefill ? 'Change at least one value' : 'Enter at least one value') : '';
 }
 
 // ---- Files ------------------------------------------------------------------------
 
+// ---- Pre-filling from a file -------------------------------------------------------
+
+async function loadDetails(file, { confirm = true } = {}) {
+  if (confirm && formHasValues(collectForm())) {
+    const sure = await ask({
+      title: `Fill the form from ${file.name}?`,
+      text: 'This replaces what is in the form now.',
+      buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Replace', value: 'ok', primary: true }],
+    });
+    if (sure !== 'ok') return;
+  }
+  let data;
+  // Busy while reading, so nothing typed or applied meanwhile is overwritten.
+  setBusy(true);
+  try {
+    data = await bme.prefill(file.path);
+  } catch (e) {
+    showNotice(`Could not read ${file.name}: ${ipcMessage(e)}`);
+    return;
+  } finally {
+    setBusy(false);
+  }
+  const values = {};
+  for (const f of state.fields) {
+    writeInput(f, data.fields[f.id] ?? '');
+    const c = document.getElementById(`c-${f.id}`);
+    c.checked = false;
+    setDisabled(f, false);
+    values[f.id] = readInput(f);
+  }
+  $('#custom-rows').replaceChildren();
+  for (const c of data.custom) addCustomRow({ ...c, clear: false }, true);
+  for (const f of state.fields) document.getElementById(`k-${f.id}`).checked = false;
+  for (const id of data.images || []) {
+    const pick = document.getElementById(`f-${id}`);
+    if (pick) pick.querySelector('.image-name').textContent = 'Has a picture: tick Keep to keep it';
+  }
+  state.prefill = { path: file.path, family: file.family, values, images: data.images || [], removedCustom: new Set() };
+  onFormChange();
+  showNotice(`Filled in the details from ${file.name}. On Apply, each copy keeps only what you change and what you tick Keep. Everything else is wiped, including details that have no box here.`, {
+    success: true,
+    action: el('button', { type: 'button', class: 'btn', text: 'Keep all', onclick: () => setAllKeeps(true) }),
+  });
+}
+
+// The file the form was filled from has left the batch: its untouched values
+// would otherwise sit in the form looking as if they applied to the others.
+function dropPrefillIfGone() {
+  const p = state.prefill;
+  if (!p || state.files.some((f) => f.path === p.path)) return;
+  for (const f of state.fields) {
+    if (f.id in p.values && sameValue(readInput(f), p.values[f.id])) writeInput(f, '');
+  }
+  for (const row of document.querySelectorAll('.custom-row')) {
+    const [name, value] = row.querySelectorAll('input[type=text]');
+    if (row.dataset.baseName !== undefined && name.value.trim() === row.dataset.baseName && value.value === row.dataset.baseValue) row.remove();
+    else {
+      delete row.dataset.baseName;
+      delete row.dataset.baseValue;
+    }
+  }
+  state.prefill = null;
+  for (const f of state.fields) document.getElementById(`k-${f.id}`).checked = false;
+  $('#strip').checked = false;
+  onFormChange();
+}
+
 async function addPaths(paths) {
   if (!paths.length || state.busy) return;
+  const wasEmpty = state.files.length === 0;
   const { accepted, refused } = await bme.validate(paths, state.files.map((f) => f.path));
   for (const a of accepted) state.files.push({ ...a, title: '', status: '', result: null });
   renderFiles();
+  // One file on its own: start the form from what it already holds.
+  if (wasEmpty && state.files.length === 1 && !refused.length && !formHasValues(collectForm())) {
+    await loadDetails(state.files[0], { confirm: false });
+    return;
+  }
   if (refused.length) {
     const counts = {};
     for (const r of refused) counts[r.reason] = (counts[r.reason] || 0) + 1;
@@ -329,7 +523,8 @@ function renderFiles() {
     return el('li', { class: cls, 'data-path': f.path },
       el('span', { class: 'badge', text: FAMILY_BADGE[f.family] }),
       el('button', { type: 'button', class: 'file-name', title: `${f.path}\nClick to see its current metadata`, text: f.name, onclick: () => openDrawer(f) }),
-      el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': `Remove ${f.name}`, text: '✕', disabled: state.busy, onclick: () => { state.files.splice(i, 1); renderFiles(); } }),
+      el('button', { type: 'button', class: 'btn btn-quiet load', text: 'Load details', title: `Fill the form from ${f.name}`, disabled: state.busy, onclick: () => loadDetails(f) }),
+      el('button', { type: 'button', class: 'btn btn-quiet', 'aria-label': `Remove ${f.name}`, text: '✕', disabled: state.busy, onclick: () => { state.files.splice(i, 1); renderFiles(); dropPrefillIfGone(); } }),
       title,
       status);
   }));
@@ -450,6 +645,18 @@ async function runApply() {
 
   // Also refuses a missing folder, or one holding any of the originals.
   const conflicts = await bme.planOutputs(state.files.map((f) => f.path), state.outDir);
+  const wipe = Boolean(state.prefill);
+  if (wipe) {
+    const counts = valueCounts(form);
+    const sure = await ask({
+      title: 'Wipe everything you have not changed or kept?',
+      text: `Each copy keeps ${counts.Changed} changed and ${counts.Kept} kept value${counts.Kept === 1 ? '' : 's'}.\n`
+        + `${counts['Will be wiped']} other value${counts['Will be wiped'] === 1 ? '' : 's'} shown here, and any details with no box here, will be removed.\n`
+        + 'Photo rotation, colour profile and the file dates stay. Your original files are not touched.',
+      buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Wipe and save', value: 'ok', primary: true }],
+    });
+    if (sure !== 'ok') return;
+  }
   let onConflict = 'suffix';
   if (conflicts.length) {
     const shown = conflicts.slice(0, 6).join('\n') + (conflicts.length > 6 ? `\n…and ${conflicts.length - 6} more` : '');
@@ -482,7 +689,8 @@ async function runApply() {
   try {
     const results = await bme.apply({
       files: state.files.map((f) => ({ path: f.path, title: f.title.trim() })),
-      form, outDir: state.outDir, strip: $('#strip').checked, onConflict,
+      form: { fields: form.fields, custom: form.custom }, outDir: state.outDir, strip: $('#strip').checked, onConflict,
+      wipe, keep: form.keep || { fields: [], custom: [] },
     });
     for (const r of results) {
       const f = state.files.find((x) => x.path === r.path);
@@ -522,9 +730,11 @@ function wire() {
     addPaths([...e.target.files].map((f) => bme.pathFor(f)));
     e.target.value = '';
   });
-  $('#clear-all').addEventListener('click', () => { state.files = []; renderFiles(); hideNotice(); });
+  $('#clear-all').addEventListener('click', () => { state.files = []; renderFiles(); hideNotice(); dropPrefillIfGone(); });
 
   $('#filter').addEventListener('input', applyFilter);
+  $('#keep-all').addEventListener('click', () => setAllKeeps(true));
+  $('#keep-none').addEventListener('click', () => setAllKeeps(false));
   $('#strip').addEventListener('change', updateApply);
   $('#out-change').addEventListener('click', async () => {
     const dir = await bme.pickOutputFolder();
@@ -553,7 +763,7 @@ function wire() {
     });
     if (!name || name === 'cancel') return;
     try {
-      const saved = await bme.presets.save(name, collectForm());
+      const saved = await bme.presets.save(name, collectForm({ all: true }));
       await refreshPresets(saved);
     } catch (e) {
       showNotice(ipcMessage(e));

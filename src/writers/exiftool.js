@@ -34,6 +34,8 @@ const LIST_TAGS = new Set([
 // IPTC-IIM only lives in JPEG and TIFF; everything else the catalogue maps
 // to a family is writable for every extension in that family.
 function supports(ext, tag) {
+  // Only Windows file systems record a creation date that can be set.
+  if (tag === 'System:FileCreateDate') return process.platform === 'win32';
   const group = tag.split(':')[0];
   if (group === 'IPTC') return IPTC_EXTS.includes(ext.toLowerCase());
   return true;
@@ -129,14 +131,16 @@ function openSession({ customNames = [] } = {}) {
   });
 
   return {
-    async write(src, dest, tags, { strip = false } = {}) {
+    async write(src, dest, tags, { strip = false, keep = [] } = {}) {
       fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
       const ext = path.extname(dest).toLowerCase();
       const family = familyOf(dest);
       const { out, args } = toExifTool(tags, family);
       // -overwrite_original on every call: otherwise ExifTool leaves a
       // "<name>_original" backup, holding the old metadata, beside the copy.
-      if (strip) await et.write(dest, {}, { writeArgs: [...STRIP_ARGS, '-overwrite_original'] });
+      // Tags to keep are copied back from the file itself (@) as it is stripped.
+      const keepArgs = keep.map((t) => (t === 'EXIF:GPS' ? '-GPS:all' : `-${t.replace(/@file$/, '')}`));
+      if (strip) await et.write(dest, {}, { writeArgs: [...STRIP_ARGS, ...keepArgs, '-overwrite_original'] });
       const clears = Object.values(tags).some((v) => v === null);
       const finish = async (warnings) => {
         if (family === 'pdf' && (strip || clears)) await compactPdf(dest);
@@ -151,6 +155,14 @@ function openSession({ customNames = [] } = {}) {
       return finish((res.warnings || []).filter((w) => !/Nothing to do/.test(w)));
     },
     read: (file) => readWith(et, file),
+    // value: a form date-time ("2025-04-01T10:07") or a Date, kept to the second.
+    async setFileCreateDate(file, value) {
+      const p = (n) => String(n).padStart(2, '0');
+      const stamp = value instanceof Date
+        ? `${value.getFullYear()}:${p(value.getMonth() + 1)}:${p(value.getDate())} ${p(value.getHours())}:${p(value.getMinutes())}:${p(value.getSeconds())}`
+        : toExif(value, 'datetime');
+      await et.write(file, { 'System:FileCreateDate': stamp }, { writeArgs: ['-overwrite_original'] });
+    },
     async end() {
       await et.end();
       fs.rmSync(cfgPath, { force: true });

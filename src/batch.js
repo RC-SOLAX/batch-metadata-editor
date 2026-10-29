@@ -191,7 +191,50 @@ function checkOutDir(paths, outDir) {
   if (paths.some((p) => sameEntry(path.dirname(p), outDir))) throw new Error(SOURCE_FOLDER);
 }
 
-async function runBatch({ files, form, outDir, strip = false, onConflict = 'suffix' }, onProgress = () => {}) {
+// Local "YYYY-MM-DDTHH:MM" of a Date, the shape the form uses.
+function localStamp(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Set the file's own created/modified dates (what Windows shows in
+// Properties), then check them against the file system. Dates not entered
+// are carried over from the original: the copy is the same document, edited.
+// Creation first: setting it must not disturb the modified date set after it.
+async function applyFileDates(file, fileDates, writers, source) {
+  const created = fileDates['System:FileCreateDate'];
+  const modified = fileDates['System:FileModifyDate'];
+  if (created) await writers.setFileCreateDate(file, created.value);
+  else if (supports(path.extname(file), 'System:FileCreateDate')) await writers.setFileCreateDate(file, source.birthtime);
+  fs.utimesSync(file, new Date(), modified ? new Date(normalise(modified.value, 'datetime')) : source.mtime);
+  const st = fs.statSync(file);
+  const bad = [];
+  if (created && localStamp(st.birthtime) !== normalise(created.value, 'datetime')) {
+    bad.push({ tag: 'System:FileCreateDate', source: created.source });
+  }
+  if (modified && localStamp(st.mtime) !== normalise(modified.value, 'datetime')) {
+    bad.push({ tag: 'System:FileModifyDate', source: modified.source });
+  }
+  return bad;
+}
+
+// Tags to carry through a strip for one family: those of every kept field
+// and kept custom name. File dates are never stripped, so they are not here.
+function keptTags(keep, family) {
+  const tags = new Set();
+  for (const id of keep.fields || []) {
+    const f = FIELDS.find((x) => x.id === id);
+    for (const tag of (f && f.targets[family]) || []) if (!tag.startsWith('System:')) tags.add(tag);
+  }
+  for (const name of keep.custom || []) for (const tag of customTags(name, family)) tags.add(tag);
+  return tags;
+}
+
+// wipe: each copy keeps only the fields edited in the form and the fields in
+// keep ({fields: [ids], custom: [names]}), each file its own kept values;
+// everything else in the file is removed, as with strip.
+async function runBatch({ files, form, outDir, strip = false, wipe = false, keep = {}, onConflict = 'suffix' }, onProgress = () => {}) {
+  if (wipe) strip = true;
   checkOutDir(files.map((f) => f.path), outDir);
   const existing = new Set(fs.readdirSync(outDir).map(nameKey));
   const { dests } = outputPaths(files.map((f) => f.path), outDir, existing);
@@ -206,7 +249,7 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
     }
   }
 
-  const customNames = (form.custom || []).map((c) => c.name).filter((n) => CUSTOM_NAME.test(n));
+  const customNames = [...new Set([...(form.custom || []).map((c) => c.name), ...(keep.custom || [])])].filter((n) => CUSTOM_NAME.test(n));
   const writers = openWriters({ customNames });
   const results = [];
   try {
@@ -220,25 +263,44 @@ async function runBatch({ files, form, outDir, strip = false, onConflict = 'suff
       const tmp = path.join(outDir, `.${crypto.randomUUID().slice(0, 8)}.bme-tmp${ext}`);
       const result = { path: file.path, dest, ok: false };
       try {
+        const sourceStat = fs.statSync(file.path);
         const intended = resolveDetailed(form, family, file.title);
         const skipped = new Set();
-        if (EXIFTOOL_FAMILIES.has(family)) {
-          for (const [tag, d] of Object.entries(intended)) {
-            if (!supports(ext, tag)) {
-              skipped.add(d.source);
-              delete intended[tag];
-            }
+        for (const [tag, d] of Object.entries(intended)) {
+          // A file always has its dates, so "clear" has nothing to remove there.
+          const clearedFileDate = tag.startsWith('System:') && d.value === null;
+          if (!supports(ext, tag) || clearedFileDate) {
+            skipped.add(d.source);
+            delete intended[tag];
           }
-          // A field skipped for one tag but written to another is not skipped.
-          for (const d of Object.values(intended)) skipped.delete(d.source);
+        }
+        // A field skipped for one tag but written to another is not skipped.
+        for (const d of Object.values(intended)) skipped.delete(d.source);
+        // The file's own dates are set last, on the finished file.
+        const fileDates = {};
+        for (const [tag, d] of Object.entries(intended)) {
+          if (tag.startsWith('System:')) {
+            fileDates[tag] = d;
+            delete intended[tag];
+          }
         }
         const writer = writers.forFamily(family);
         const tags = Object.fromEntries(Object.entries(intended).map(([t, d]) => [t, d.value]));
-        const { warnings = [] } = (await writer.write(file.path, tmp, tags, { strip })) || {};
-        const bad = compare(intended, await writer.read(tmp), family);
+        // Kept tags this file has: carried through the strip, then checked.
+        const keepSet = wipe ? keptTags(keep, family) : new Set();
+        for (const t of Object.keys(tags)) keepSet.delete(t); // an edit wins over keep
+        const before = keepSet.size ? await writer.read(file.path) : {};
+        const keepIntended = {};
+        for (const t of keepSet) {
+          if (before[t] !== undefined) keepIntended[t] = { value: before[t], source: 'keep' };
+        }
+        const { warnings = [] } = (await writer.write(file.path, tmp, tags, { strip, keep: [...keepSet] })) || {};
+        const after = await writer.read(tmp);
+        const bad = [...compare(intended, after, family), ...compare(keepIntended, after, family)];
         // Last guard before anything in the output folder is replaced.
         if (fs.existsSync(dest) && files.some((f) => sameEntry(f.path, dest))) throw new Error(SOURCE_FOLDER);
         fs.renameSync(tmp, dest);
+        bad.push(...await applyFileDates(dest, fileDates, writers, sourceStat));
         result.skipped = [...skipped];
         if (bad.length) {
           result.mismatched = [...new Set(bad.map((b) => b.source))];

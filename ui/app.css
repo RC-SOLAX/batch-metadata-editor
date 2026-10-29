@@ -131,7 +131,7 @@ input:disabled, textarea:disabled, select:disabled { opacity: .45; }
 .file-list { list-style: none; margin: 8px 0 0; padding: 0 12px 12px; overflow: auto; flex: 1; }
 .file {
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px 1fr auto auto;
   gap: 4px 8px;
   align-items: center;
   padding: 8px;
@@ -162,8 +162,9 @@ input:disabled, textarea:disabled, select:disabled { opacity: .45; }
   white-space: nowrap;
 }
 .file-name:hover { text-decoration: underline; }
-.file-title { grid-column: 2 / 4; width: 100%; }
-.file-status { grid-column: 1 / 4; font-size: 12px; color: var(--muted); }
+.file-title { grid-column: 2 / 5; width: 100%; }
+.file .load { font-size: 12px; padding: 2px 8px; }
+.file-status { grid-column: 1 / 5; font-size: 12px; color: var(--muted); }
 .file-status:empty { display: none; }
 .file.ok { border-color: var(--ok); }
 .file.ok .file-status { color: var(--ok); }
@@ -270,3 +271,16 @@ dialog input { width: 100%; margin-bottom: 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 body.busy .files, body.busy .editor, body.busy .bar .bar-group, body.busy .check { pointer-events: none; opacity: .7; }
+
+/* ---- Wipe mode: the form was filled from a file ---------------------------- */
+.checks { display: flex; flex-direction: column; gap: 2px; }
+.field .keep, .custom-row .keep { padding-top: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.keep, .wipe-only, .wipe-legend, .status { display: none; }
+body.wipe-mode .keep, body.wipe-mode .wipe-only, body.wipe-mode .wipe-legend { display: inline-flex; align-items: center; gap: 4px; }
+body.wipe-mode .clear, body.wipe-mode .normal-legend, body.wipe-mode .keep.no-keep { display: none; }
+body.wipe-mode .status:not(:empty) { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 3px; font-weight: 600; }
+.status[data-state="changed"] { background: var(--accent-soft); color: var(--accent); }
+.status[data-state="kept"] { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.status[data-state="will"] { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+.wipe-only { padding: 2px 8px; white-space: nowrap; }
+.notice .btn { white-space: nowrap; }

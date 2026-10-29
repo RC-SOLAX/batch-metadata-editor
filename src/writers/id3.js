@@ -97,12 +97,28 @@ function apply(tags, tag, value) {
   return null;
 }
 
-async function write(src, dest, tags, { strip = false } = {}) {
+// From a node-id3 tag object, only the frames behind the given form tags.
+function pick(existing, keep) {
+  const out = {};
+  for (const tag of keep) {
+    if (tag.startsWith('TXXX:')) {
+      const hit = (existing.userDefinedText || []).filter((t) => t.description === tag.slice(5));
+      if (hit.length) out.userDefinedText = [...(out.userDefinedText || []), ...hit];
+    } else {
+      const key = tag === 'rating' ? 'popularimeter' : tag;
+      if (existing[key] !== undefined) out[key] = existing[key];
+    }
+  }
+  return out;
+}
+
+async function write(src, dest, tags, { strip = false, keep = [] } = {}) {
   fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
   const warnings = [];
   try {
-    const merged = strip ? {} : readTags(dest);
-    downgradeV24(merged);
+    const existing = readTags(dest);
+    downgradeV24(existing);
+    const merged = strip ? pick(existing, keep) : existing;
     for (const [tag, value] of Object.entries(tags)) {
       const w = apply(merged, tag, value);
       if (w) warnings.push(w);

@@ -17,6 +17,10 @@ function openWriters({ customNames = [] } = {}) {
       if (family === 'mp3') return id3;
       throw new Error(`No writer for ${family}`);
     },
+    // Windows creation date of a finished file; ExifTool can set it, Node cannot.
+    async setFileCreateDate(file, value) {
+      await et().setFileCreateDate(file, value);
+    },
     async end() {
       if (session) await session.end();
       session = null;

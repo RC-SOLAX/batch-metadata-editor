@@ -18,7 +18,7 @@ anyway**.
 
 | Files | Where the values go |
 |---|---|
-| PDF (.pdf) | Document properties (Title, Author, Subject, Keywords, Creator, Producer, dates, Trapped) and XMP |
+| PDF (.pdf) | Document properties (Title, Author, Subject, Keywords, Creator, Producer, dates, Trapped), each written to both the Info dictionary and its XMP twin, as Word and Acrobat do; plus further XMP fields |
 | Word, Excel, PowerPoint (.docx .xlsx .pptx and the macro/template variants) | File › Info properties: core, extended (Company, Manager, Hyperlink base…) and custom |
 | Images (.jpg .png .webp .tif .heic) | EXIF (including the Windows title, tags, comments and author fields, plus GPS), IPTC (JPEG and TIFF only), XMP (including alt text) |
 | MP3 (.mp3) | ID3v2.3 tags, including album, track, disc, lyrics, ISRC, rating and cover art |
@@ -32,13 +32,38 @@ and save them as .docx, .xlsx or .pptx first.
 1. **Add files.** Drag them onto the drop area, or click **Add files…**. The
    batch holds up to 20. Anything over the limit, or of a type the app can't
    edit, is turned away, and the app tells you how many and why.
-2. **Fill in the fields.**
+2. **Fill in the fields.** If the batch holds a single file, the form fills
+   in with whatever that file already has: title, author, dates, tags and so
+   on. In a larger batch, click **Load details** on any file to do the same.
+   Once the form has been filled from a file, each box shows what will happen
+   to it on Apply:
+   - **Changed:** you edited it, and your value goes on every file in the
+     batch.
+   - **Kept:** you ticked **Keep**, so each file keeps its own value.
+     **Keep all** and **Keep none** set every box at once.
+   - **Will be wiped:** you neither changed it nor kept it, so it is removed.
+     So is anything the app has no box for: camera details, editing history,
+     hidden XMP and so on.
+
+   Photo rotation, colour profile and the file's own Created/Modified dates
+   always stay. Apply asks you to confirm before anything is wiped. Your
+   originals are never touched.
+
+   If you don't load a file's details, a blank box means "leave unchanged"
+   and Clear removes a value, as before.
+   The fields:
    - **Common** fields go to every file type that has an equivalent. For
      example, Title becomes the PDF title, the Word title, the image title
      and the MP3 title.
    - Each **format tab** (PDF, Office, Images, MP3, Video / M4A) lists every
      field that format can hold. A value entered there overrides the Common
      value for that format.
+   - **File created** and **File modified** (top of the Common tab) set the
+     dates Windows shows in a file's Properties › General and in Explorer.
+     If left as they are, each copy keeps its original's dates.
+     These are the file's own dates, separate from the dates stored inside a
+     document, which programs like Acrobat show. Creation dates can be set on
+     Windows only.
    - **Custom** holds your own name/value pairs, such as `Batch_Ref = 2026-114`.
    - Each file row has its own optional **Title** box, which overrides the
      batch title for that file only.
